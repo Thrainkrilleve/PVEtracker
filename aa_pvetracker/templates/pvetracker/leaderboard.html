@@ -59,22 +59,24 @@
                     <td class="text-end pvet-col-rep">{{ row.reps_given_total|floatformat:0 }}</td>
                     <td class="text-end"><i class="fas fa-chevron-down fa-xs text-body-secondary"></i></td>
                 </tr>
-                <tr class="collapse" id="row-{{ forloop.counter }}">
-                    <td colspan="6" class="bg-body-tertiary">
-                        <table class="table table-sm mb-0">
-                            <tbody>
-                                {% for char_name, stats in row.by_character %}
-                                <tr>
-                                    <td class="ps-4 text-body-secondary">{{ char_name }}</td>
-                                    <td class="text-end pvet-col-out">{{ stats.damage_out|floatformat:0 }}</td>
-                                    <td class="text-end pvet-col-in">{{ stats.damage_in|floatformat:0 }}</td>
-                                    <td class="text-end pvet-col-rep">{{ stats.reps_received_total|floatformat:0 }}</td>
-                                    <td class="text-end pvet-col-rep">{{ stats.reps_given_total|floatformat:0 }}</td>
-                                    <td></td>
-                                </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
+                <tr class="pvet-detail-row">
+                    <td colspan="6" class="p-0 border-0">
+                        <div class="collapse" id="row-{{ forloop.counter }}">
+                            <table class="table table-sm mb-0 bg-body-tertiary">
+                                <tbody>
+                                    {% for char_name, stats in row.by_character %}
+                                    <tr>
+                                        <td class="ps-4 text-body-secondary">{{ char_name }}</td>
+                                        <td class="text-end pvet-col-out">{{ stats.damage_out|floatformat:0 }}</td>
+                                        <td class="text-end pvet-col-in">{{ stats.damage_in|floatformat:0 }}</td>
+                                        <td class="text-end pvet-col-rep">{{ stats.reps_received_total|floatformat:0 }}</td>
+                                        <td class="text-end pvet-col-rep">{{ stats.reps_given_total|floatformat:0 }}</td>
+                                        <td></td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
                     </td>
                 </tr>
                 {% endfor %}
