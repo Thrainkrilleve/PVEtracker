@@ -164,6 +164,18 @@
 .pvet-feed-row.miss_in,
 .pvet-feed-row.jammed { color: var(--bs-secondary-color); font-style: italic; }
 
+.pvet-detail-table {
+    width: 100%;
+    background: var(--bs-tertiary-bg);
+    color: var(--bs-body-color);
+    border-collapse: collapse;
+}
+
+.pvet-detail-table td {
+    padding: 0.4rem 0.75rem;
+    border: none;
+}
+
 /* ---- Leaderboard --------------------------------------------------------- */
 
 .pvetracker-app tr[data-bs-toggle="collapse"]:hover {
