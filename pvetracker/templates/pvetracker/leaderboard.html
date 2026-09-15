@@ -1,0 +1,91 @@
+{% extends 'pvetracker/base.html' %}
+{% load i18n %}
+
+{% block pvetracker_content %}
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+    <h1 class="mb-0">{% trans "Fleet Leaderboard" %}</h1>
+    <div class="d-flex gap-2">
+        <a href="{% url 'pvetracker:upload' %}" class="btn btn-primary">
+            <i class="fas fa-upload fa-fw"></i> {% trans "Upload a log" %}
+        </a>
+        <a href="{% url 'pvetracker:my_uploads' %}" class="btn btn-outline-secondary">
+            {% trans "My uploads" %}
+        </a>
+    </div>
+</div>
+
+<div class="btn-toolbar mb-3 gap-2" role="toolbar">
+    <div class="btn-group btn-group-sm" role="group">
+        {% for key, text in ranges %}
+        <a href="?range={{ key }}&sort={{ sort_key }}"
+           class="btn btn-outline-secondary {% if range_key == key %}active{% endif %}">{{ text }}</a>
+        {% endfor %}
+    </div>
+    <div class="btn-group btn-group-sm" role="group">
+        {% for key, text in sorts %}
+        <a href="?range={{ range_key }}&sort={{ key }}"
+           class="btn btn-outline-secondary {% if sort_key == key %}active{% endif %}">{{ text }}</a>
+        {% endfor %}
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-body">
+        {% if rows %}
+        <table class="table table-hover align-middle mb-0">
+            <thead>
+                <tr>
+                    <th>{% trans "Pilot" %}</th>
+                    <th class="text-end">{% trans "Damage Dealt" %}</th>
+                    <th class="text-end">{% trans "Damage Received" %}</th>
+                    <th class="text-end">{% trans "Reps Received" %}</th>
+                    <th class="text-end">{% trans "Reps Given" %}</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in rows %}
+                <tr data-bs-toggle="collapse" data-bs-target="#row-{{ forloop.counter }}" style="cursor:pointer;">
+                    <td>
+                        <strong>#{{ forloop.counter }}</strong>
+                        {{ row.label }}
+                        {% if row.by_character|length > 1 %}
+                        <span class="badge bg-secondary-subtle text-secondary-emphasis">{{ row.by_character|length }} {% trans "characters" %}</span>
+                        {% endif %}
+                    </td>
+                    <td class="text-end">{{ row.damage_out|floatformat:0 }}</td>
+                    <td class="text-end">{{ row.damage_in|floatformat:0 }}</td>
+                    <td class="text-end">{{ row.reps_received_total|floatformat:0 }}</td>
+                    <td class="text-end">{{ row.reps_given_total|floatformat:0 }}</td>
+                    <td class="text-end"><i class="fas fa-chevron-down fa-xs text-body-secondary"></i></td>
+                </tr>
+                <tr class="collapse" id="row-{{ forloop.counter }}">
+                    <td colspan="6" class="bg-body-tertiary">
+                        <table class="table table-sm mb-0">
+                            <tbody>
+                                {% for char_name, stats in row.by_character %}
+                                <tr>
+                                    <td class="ps-4 text-body-secondary">{{ char_name }}</td>
+                                    <td class="text-end">{{ stats.damage_out|floatformat:0 }}</td>
+                                    <td class="text-end">{{ stats.damage_in|floatformat:0 }}</td>
+                                    <td class="text-end">{{ stats.reps_received_total|floatformat:0 }}</td>
+                                    <td class="text-end">{{ stats.reps_given_total|floatformat:0 }}</td>
+                                    <td></td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="text-body-secondary mb-0">
+            {% trans "No uploads yet in this range." %}
+            <a href="{% url 'pvetracker:upload' %}">{% trans "Upload your first combat log" %}</a>.
+        </p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

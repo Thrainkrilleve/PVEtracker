@@ -1,0 +1,49 @@
+"""Hook into Alliance Auth"""
+
+# Django
+from django.utils.translation import gettext_lazy as _
+
+# Alliance Auth
+from allianceauth import hooks
+from allianceauth.services.hooks import MenuItemHook, UrlHook
+
+from . import urls
+from .views import pvetracker_dashboard
+
+
+class PvetrackerMenuItem(MenuItemHook):
+    """Sidebar menu entry — only visible to users with basic_access."""
+
+    def __init__(self):
+        MenuItemHook.__init__(
+            self,
+            _("PvE Tracker"),
+            "fas fa-crosshairs fa-fw",
+            "pvetracker:leaderboard",
+            navactive=["pvetracker:"],
+        )
+
+    def render(self, request) -> str:
+        if request.user.has_perm("pvetracker.basic_access"):
+            return MenuItemHook.render(self, request)
+        return ""
+
+
+class PvetrackerDashboardHook(hooks.DashboardItemHook):
+    def __init__(self):
+        super().__init__(pvetracker_dashboard, 1)
+
+
+@hooks.register("menu_item_hook")
+def register_menu():
+    return PvetrackerMenuItem()
+
+
+@hooks.register("url_hook")
+def register_urls():
+    return UrlHook(urls, "pvetracker", r"^pvetracker/")
+
+
+@hooks.register("dashboard_hook")
+def register_dashboard():
+    return PvetrackerDashboardHook()

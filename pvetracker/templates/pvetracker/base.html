@@ -1,0 +1,16 @@
+{% extends 'allianceauth/base-bs5.html' %}
+{% load i18n static %}
+
+{% block content %}
+<div class="pvetracker-app">
+    {% block pvetracker_content %}{% endblock %}
+</div>
+{% endblock content %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'pvetracker/css/pvetracker.css' %}">
+{% endblock extra_css %}
+
+{% block extra_javascript %}
+<script src="{% static 'pvetracker/js/dropzone.js' %}" defer></script>
+{% endblock extra_javascript %}
