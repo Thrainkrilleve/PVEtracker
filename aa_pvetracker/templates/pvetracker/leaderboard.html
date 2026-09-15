@@ -47,16 +47,16 @@
                 {% for row in rows %}
                 <tr data-bs-toggle="collapse" data-bs-target="#row-{{ forloop.counter }}" style="cursor:pointer;">
                     <td>
-                        <strong>#{{ forloop.counter }}</strong>
+                        <span class="pvet-rank {% if forloop.counter <= 3 %}rank-{{ forloop.counter }}{% endif %}">{{ forloop.counter }}</span>
                         {{ row.label }}
                         {% if row.by_character|length > 1 %}
                         <span class="badge bg-secondary-subtle text-secondary-emphasis">{{ row.by_character|length }} {% trans "characters" %}</span>
                         {% endif %}
                     </td>
-                    <td class="text-end">{{ row.damage_out|floatformat:0 }}</td>
-                    <td class="text-end">{{ row.damage_in|floatformat:0 }}</td>
-                    <td class="text-end">{{ row.reps_received_total|floatformat:0 }}</td>
-                    <td class="text-end">{{ row.reps_given_total|floatformat:0 }}</td>
+                    <td class="text-end pvet-col-out">{{ row.damage_out|floatformat:0 }}</td>
+                    <td class="text-end pvet-col-in">{{ row.damage_in|floatformat:0 }}</td>
+                    <td class="text-end pvet-col-rep">{{ row.reps_received_total|floatformat:0 }}</td>
+                    <td class="text-end pvet-col-rep">{{ row.reps_given_total|floatformat:0 }}</td>
                     <td class="text-end"><i class="fas fa-chevron-down fa-xs text-body-secondary"></i></td>
                 </tr>
                 <tr class="collapse" id="row-{{ forloop.counter }}">
@@ -66,10 +66,10 @@
                                 {% for char_name, stats in row.by_character %}
                                 <tr>
                                     <td class="ps-4 text-body-secondary">{{ char_name }}</td>
-                                    <td class="text-end">{{ stats.damage_out|floatformat:0 }}</td>
-                                    <td class="text-end">{{ stats.damage_in|floatformat:0 }}</td>
-                                    <td class="text-end">{{ stats.reps_received_total|floatformat:0 }}</td>
-                                    <td class="text-end">{{ stats.reps_given_total|floatformat:0 }}</td>
+                                    <td class="text-end pvet-col-out">{{ stats.damage_out|floatformat:0 }}</td>
+                                    <td class="text-end pvet-col-in">{{ stats.damage_in|floatformat:0 }}</td>
+                                    <td class="text-end pvet-col-rep">{{ stats.reps_received_total|floatformat:0 }}</td>
+                                    <td class="text-end pvet-col-rep">{{ stats.reps_given_total|floatformat:0 }}</td>
                                     <td></td>
                                 </tr>
                                 {% endfor %}

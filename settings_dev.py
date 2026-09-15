@@ -17,7 +17,7 @@ INSTALLED_APPS = [
     'allianceauth.services',
     'allianceauth.framework',
     'esi',
-    'pvetracker',
+    'aa_pvetracker',
 ]
 
 MIDDLEWARE = [

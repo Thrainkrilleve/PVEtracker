@@ -34,7 +34,7 @@ Repository = "https://github.com/Thrainkrilleve/PVEtracker"
 "Bug Tracker" = "https://github.com/Thrainkrilleve/PVEtracker/issues"
 
 [tool.hatch.version]
-path = "pvetracker/__init__.py"
+path = "aa_pvetracker/__init__.py"
 
 [tool.hatch.build]
-include = ["/pvetracker"]
+include = ["/aa_pvetracker"]

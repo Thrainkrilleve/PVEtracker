@@ -6,7 +6,9 @@ Each EVE client's combat log only ever records damage *involving that pilot* —
 
 ## Status
 
-**v0.0.1 — Phase 1 (upload + leaderboard).** This is the upload-and-leaderboard half of the project; live in-browser log tailing (via the File System Access API, so a pilot's dashboard updates in real time while they fly) is planned for a later release and isn't in this version.
+**v0.0.2 — Phase 1 (upload + leaderboard).** This is the upload-and-leaderboard half of the project; live in-browser log tailing (via the File System Access API, so a pilot's dashboard updates in real time while they fly) is planned for a later release and isn't in this version.
+
+A note on naming: the installable/importable package is `aa_pvetracker` (distributed as `aa-pvetracker`), but the Django app *label* — used in permission strings (`pvetracker.basic_access`), the URL namespace (`{% url 'pvetracker:...' %}`), and `manage.py` app-label arguments (`manage.py test pvetracker`) — is the shorter `pvetracker`. This is a standard, supported Django distinction (`AppConfig.name` vs `AppConfig.label`), used here so the label doesn't need to change again if the distribution is ever renamed.
 
 ## Features
 
@@ -17,7 +19,7 @@ Each EVE client's combat log only ever records damage *involving that pilot* —
 - **My Uploads** page to review or delete your own uploads.
 - **Dashboard widget** showing your own last-7-days damage and reps given.
 
-## Known limitations (v0.0.1)
+## Known limitations (v0.0.2)
 
 - **No live tracking yet.** This version only reads finished (or in-progress, but manually re-uploaded) log files — it doesn't watch a growing log in real time. That's planned for a later release using the browser's File System Access API.
 - **`reps_given_total` is an estimate.** The regex for a logi pilot's own *outgoing* remote-repair line was written by mirroring the (fully verified) incoming-rep line shape, since we didn't have a real logi pilot's log to test against at the time. If your numbers look off, please open an issue with a sample line (amounts/names redacted is fine).
@@ -36,7 +38,7 @@ Each EVE client's combat log only ever records damage *involving that pilot* —
    pip install aa-pvetracker
    ```
 
-2. Add `"pvetracker"` to `INSTALLED_APPS` in your Alliance Auth settings file (e.g. `local.py`).
+2. Add `"aa_pvetracker"` to `INSTALLED_APPS` in your Alliance Auth settings file (e.g. `local.py`).
 
 3. Rebuild the image, run migrations, and collect static files:
 
@@ -55,7 +57,7 @@ A lightweight SQLite dev harness (`manage.py` / `settings_dev.py` / `urls_dev.py
 ```bash
 python -m venv .venv
 .venv/Scripts/pip install allianceauth
-.venv/Scripts/python -m unittest pvetracker.tests.test_parsing
+.venv/Scripts/python -m unittest aa_pvetracker.tests.test_parsing
 
 # confirm 0001_initial.py matches the current models (no changes detected):
 DJANGO_SETTINGS_MODULE=settings_dev .venv/Scripts/python -c "

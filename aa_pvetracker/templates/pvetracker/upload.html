@@ -1,0 +1,126 @@
+{% extends 'pvetracker/base.html' %}
+{% load i18n %}
+
+{% block pvetracker_content %}
+<h1>{% trans "Upload a Combat Log" %}</h1>
+<p class="text-body-secondary">
+    {% trans "Drop a .txt file from" %} <code>Documents\EVE\logs\Gamelogs</code>
+    {% trans "or click to pick one. It only records what your own client saw." %}
+</p>
+
+{% if messages %}
+{% for message in messages %}
+<div class="alert alert-{{ message.tags }}">{{ message }}</div>
+{% endfor %}
+{% endif %}
+
+<form method="post" enctype="multipart/form-data" id="pvetracker-upload-form">
+    {% csrf_token %}
+    <div id="pvetracker-dropzone" class="card mb-3">
+        <div class="card-body text-center py-5">
+            <i class="fas fa-cloud-upload-alt fa-2x mb-2 text-body-secondary"></i>
+            <p class="mb-2">{% trans "Drag a Gamelog .txt file here" %}</p>
+            <p class="text-body-secondary small mb-2">{% trans "or" %}</p>
+            {{ form.log_file }}
+        </div>
+    </div>
+    <button type="submit" class="btn btn-primary">{% trans "Upload" %}</button>
+</form>
+
+{% if result %}
+<hr class="my-4">
+<div class="d-flex justify-content-between align-items-baseline mb-2 flex-wrap gap-2">
+    <h2 class="mb-0">{{ result.character.character_name }}</h2>
+    <span class="text-body-secondary small">
+        {{ result.matched_lines }} / {{ result.combat_lines }} {% trans "combat lines scored" %}
+    </span>
+</div>
+
+<div class="pvet-stat-grid mb-3">
+    <div class="pvet-stat-card out">
+        <div class="pvet-stat-label">{% trans "Damage Dealt" %}</div>
+        <div class="pvet-stat-value">{{ result.damage_out }}</div>
+        <div class="pvet-stat-foot">{{ result.dps_out|floatformat:0 }} {% trans "DPS avg" %}</div>
+    </div>
+    <div class="pvet-stat-card in">
+        <div class="pvet-stat-label">{% trans "Damage Received" %}</div>
+        <div class="pvet-stat-value">{{ result.damage_in }}</div>
+        <div class="pvet-stat-foot">{{ result.dps_in|floatformat:0 }} {% trans "DPS avg" %}</div>
+    </div>
+    <div class="pvet-stat-card rep">
+        <div class="pvet-stat-label">{% trans "Reps Received" %}</div>
+        <div class="pvet-stat-value">{{ result.reps_received_total }}</div>
+        <div class="pvet-stat-foot">&nbsp;</div>
+    </div>
+    <div class="pvet-stat-card rep">
+        <div class="pvet-stat-label">{% trans "Reps Given" %}</div>
+        <div class="pvet-stat-value">{{ result.reps_given_total }}</div>
+        <div class="pvet-stat-foot">{% trans "estimated" %}</div>
+    </div>
+</div>
+
+<div class="row g-3 mb-3">
+    <div class="col-md-6">
+        <div class="pvet-panel">
+            <div class="pvet-panel-title">{% trans "Top Targets" %}</div>
+            <table class="pvet-mini-table out">
+                <tbody>
+                    {% for name, amt in result.top_targets %}
+                    <tr><td>{{ name }}</td><td class="pvet-amt">{{ amt }}</td></tr>
+                    {% empty %}
+                    <tr><td class="text-body-secondary">{% trans "no data" %}</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="pvet-panel">
+            <div class="pvet-panel-title">{% trans "Top Attackers" %}</div>
+            <table class="pvet-mini-table in">
+                <tbody>
+                    {% for name, amt in result.top_attackers %}
+                    <tr><td>{{ name }}</td><td class="pvet-amt">{{ amt }}</td></tr>
+                    {% empty %}
+                    <tr><td class="text-body-secondary">{% trans "no data" %}</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<div class="row g-3 mb-3">
+    <div class="col-md-6">
+        <div class="pvet-panel">
+            <div class="pvet-panel-title">{% trans "Hit Quality — Outgoing" %}</div>
+            {% for q, n in result.quality_out %}
+            <div class="pvet-bar-row">
+                <div class="pvet-bar-name">{{ q }}</div>
+                <div class="pvet-bar-track"><div class="pvet-bar-fill q-{{ q|slugify }}" style="width: {% widthratio n result.shots_out 100 %}%"></div></div>
+                <div class="pvet-bar-num">{{ n }}</div>
+            </div>
+            {% empty %}
+            <span class="text-body-secondary">{% trans "no data" %}</span>
+            {% endfor %}
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="pvet-panel">
+            <div class="pvet-panel-title">{% trans "Hit Quality — Incoming" %}</div>
+            {% for q, n in result.quality_in %}
+            <div class="pvet-bar-row">
+                <div class="pvet-bar-name">{{ q }}</div>
+                <div class="pvet-bar-track"><div class="pvet-bar-fill q-{{ q|slugify }}" style="width: {% widthratio n result.shots_in 100 %}%"></div></div>
+                <div class="pvet-bar-num">{{ n }}</div>
+            </div>
+            {% empty %}
+            <span class="text-body-secondary">{% trans "no data" %}</span>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+
+<a href="{% url 'pvetracker:leaderboard' %}" class="btn btn-outline-secondary">{% trans "View leaderboard" %}</a>
+{% endif %}
+{% endblock %}
