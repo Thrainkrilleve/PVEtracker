@@ -9,7 +9,7 @@ from — see the module docstring in parsing.py.
 # Standard Library
 import unittest
 
-from pvetracker.parsing import ParseStats, iter_events_from_lines, read_header_from_lines, summarize
+from aa_pvetracker.parsing import ParseStats, iter_events_from_lines, read_header_from_lines, summarize
 
 HEADER = [
     "------------------------------------------------------------\n",
