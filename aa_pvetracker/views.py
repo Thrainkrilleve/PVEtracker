@@ -141,6 +141,7 @@ def _handle_upload(request, uploaded_file):
         top_attackers=summary["top_attackers"],
         reps_by_healer=summary["reps_by_healer"],
         reps_by_recipient=summary["reps_by_recipient"],
+        feed=summary["feed"],
         combat_lines=stats.combat_lines,
         matched_lines=stats.matched,
     )

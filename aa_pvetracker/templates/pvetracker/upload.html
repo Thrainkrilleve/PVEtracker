@@ -30,7 +30,12 @@
 {% if result %}
 <hr class="my-4">
 <div class="d-flex justify-content-between align-items-baseline mb-2 flex-wrap gap-2">
-    <h2 class="mb-0">{{ result.character.character_name }}</h2>
+    <div>
+        <h2 class="mb-0">{{ result.character.character_name }}</h2>
+        <span class="text-body-secondary small">
+            {{ result.duration_display }} {% trans "session" %} &middot; {{ result.source_filename }}
+        </span>
+    </div>
     <span class="text-body-secondary small">
         {{ result.matched_lines }} / {{ result.combat_lines }} {% trans "combat lines scored" %}
     </span>
@@ -118,6 +123,41 @@
             <span class="text-body-secondary">{% trans "no data" %}</span>
             {% endfor %}
         </div>
+    </div>
+</div>
+
+<div class="pvet-panel mb-3">
+    <div class="pvet-panel-title">{% trans "Recent Activity" %}</div>
+    <div class="pvet-feed">
+        {% for item in result.feed %}
+        <div class="pvet-feed-row {{ item.kind }}">
+            <div class="pvet-feed-ts">{{ item.ts }}</div>
+            {% if item.kind == "damage_out" %}
+            <div class="pvet-feed-amt">{{ item.amount }}</div>
+            <div>{% trans "to" %} {{ item.party }} — {{ item.quality }}</div>
+            {% elif item.kind == "damage_in" %}
+            <div class="pvet-feed-amt">{{ item.amount }}</div>
+            <div>{% trans "from" %} {{ item.party }} — {{ item.quality }}</div>
+            {% elif item.kind == "remote_rep_in" %}
+            <div class="pvet-feed-amt">{{ item.amount }}</div>
+            <div>{% trans "repaired by" %} {{ item.party }}</div>
+            {% elif item.kind == "remote_rep_out" %}
+            <div class="pvet-feed-amt">{{ item.amount }}</div>
+            <div>{% trans "repaired to" %} {{ item.party }}</div>
+            {% elif item.kind == "miss_out" %}
+            <div class="pvet-feed-amt">{% trans "miss" %}</div>
+            <div>{% trans "at" %} {{ item.party }}</div>
+            {% elif item.kind == "miss_in" %}
+            <div class="pvet-feed-amt">{% trans "miss" %}</div>
+            <div>{% trans "by" %} {{ item.party }}</div>
+            {% elif item.kind == "jammed" %}
+            <div class="pvet-feed-amt">{% trans "jammed" %}</div>
+            <div>{% trans "by" %} {{ item.party }}</div>
+            {% endif %}
+        </div>
+        {% empty %}
+        <span class="text-body-secondary">{% trans "no activity recorded" %}</span>
+        {% endfor %}
     </div>
 </div>
 

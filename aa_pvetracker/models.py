@@ -93,6 +93,11 @@ class CombatLogUpload(models.Model):
     top_attackers = models.JSONField(_("top attackers"), default=list, blank=True)
     reps_by_healer = models.JSONField(_("reps by healer"), default=list, blank=True)
     reps_by_recipient = models.JSONField(_("reps by recipient"), default=list, blank=True)
+    feed = models.JSONField(
+        _("recent activity"), default=list, blank=True,
+        help_text=_("Last events of the session (most recent first) — same shape as the "
+                    "standalone prototype's live feed, capped so this stays small."),
+    )
 
     # ---- Parse-coverage sanity numbers -----------------------------------------
 
@@ -126,3 +131,8 @@ class CombatLogUpload(models.Model):
     @property
     def dps_in(self) -> float:
         return self.damage_in / self.duration_seconds if self.duration_seconds else 0.0
+
+    @property
+    def duration_display(self) -> str:
+        total = int(self.duration_seconds)
+        return f"{total // 3600:02d}:{(total % 3600) // 60:02d}:{total % 60:02d}"

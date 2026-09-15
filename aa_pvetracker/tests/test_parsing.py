@@ -133,6 +133,17 @@ class SummarizeTests(unittest.TestCase):
         self.assertEqual(summary["top_targets"], [["Bewildering Lathe", 1022]])
         self.assertEqual(summary["top_attackers"], [["Alienator Crusher", 762]])
 
+        # feed is most-recent-first and skips nothing but "other"/energy-neutral events
+        self.assertEqual(len(summary["feed"]), 6)
+        self.assertEqual(summary["feed"][0]["kind"], "remote_rep_out")
+        self.assertEqual(summary["feed"][-1]["kind"], "damage_out")
+
+    def test_feed_is_capped_and_most_recent_first(self):
+        lines = [DAMAGE_OUT] * 70  # far more than FEED_LIMIT
+        events = list(iter_events_from_lines(lines))
+        summary = summarize(events)
+        self.assertEqual(len(summary["feed"]), 60)
+
 
 if __name__ == "__main__":
     unittest.main()

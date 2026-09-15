@@ -79,6 +79,8 @@ class UploadOwnershipTests(TestCase):
         self.assertEqual(upload.damage_out, 1022)
         self.assertEqual(upload.damage_in, 762)
         self.assertEqual(upload.file_hash, hashlib.sha256(SAMPLE_LOG.encode("utf-8")).hexdigest())
+        self.assertEqual(len(upload.feed), 2)
+        self.assertEqual(upload.feed[0]["kind"], "damage_in")  # most recent first
 
     def test_rejects_duplicate_upload(self):
         _own_character(self.user, self.character)

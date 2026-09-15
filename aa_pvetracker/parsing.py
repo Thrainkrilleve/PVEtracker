@@ -68,6 +68,8 @@ _REMOTE_REP_OUT_RE = re.compile(
 _ENERGY_NEUT_RE = re.compile(r"^(?P<amount>\d+)\s*GJ\s+energy neutralized\s+(?P<target>.+?)\s+-\s+.+$")
 
 QUALITY_ORDER = ["Wrecks", "Hits", "Penetrates", "Smashes", "Grazes", "Glances Off", "Misses"]
+FEED_KINDS = {"damage_out", "damage_in", "remote_rep_in", "remote_rep_out", "miss_out", "miss_in", "jammed"}
+FEED_LIMIT = 60
 
 
 @dataclass
@@ -182,9 +184,10 @@ def read_header_from_lines(lines: Iterable[str]) -> dict:
 def summarize(events: Iterable[CombatEvent]) -> dict:
     """Reduce a stream of CombatEvents to a plain, JSON/model-field-ready dict.
 
-    Mirrors the standalone tool's `Summary` class, minus the live-only fields
-    (rolling DPS window, recent-event feed) that only matter while watching a
-    log grow in real time — not for a finished-file upload.
+    Mirrors the standalone tool's `Summary` class, minus the rolling-DPS
+    window (only meaningful while watching a log grow live). The event feed
+    IS carried over — capped to the most recent FEED_LIMIT events — since
+    it's part of the same visual design and costs little to keep.
     """
     damage_out = damage_in = 0
     hits_out = misses_out = hits_in = misses_in = 0
@@ -196,12 +199,22 @@ def summarize(events: Iterable[CombatEvent]) -> dict:
     reps_by_healer: dict = {}
     reps_by_recipient: dict = {}
     first_ts = last_ts = None
+    feed: list = []
 
     for e in events:
         if first_ts is None or e.timestamp < first_ts:
             first_ts = e.timestamp
         if last_ts is None or e.timestamp > last_ts:
             last_ts = e.timestamp
+
+        if e.kind in FEED_KINDS:
+            feed.append({
+                "ts": e.timestamp.strftime("%H:%M:%S"),
+                "kind": e.kind,
+                "amount": e.amount,
+                "party": e.other_party,
+                "quality": e.quality,
+            })
 
         if e.kind == "damage_out":
             damage_out += e.amount
@@ -242,6 +255,7 @@ def summarize(events: Iterable[CombatEvent]) -> dict:
         "top_attackers": top(damage_by_attacker),
         "reps_received_total": reps_received_total,
         "reps_given_total": reps_given_total,
+        "feed": feed[-FEED_LIMIT:][::-1],
         "reps_by_healer": top(reps_by_healer),
         "reps_by_recipient": top(reps_by_recipient),
     }
