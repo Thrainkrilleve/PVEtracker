@@ -43,8 +43,8 @@ jobs:
       - name: Check migrations match the models
         env:
           DJANGO_SETTINGS_MODULE: settings_dev
-        run: python manage.py makemigrations pvetracker --check --dry-run
+        run: python manage.py makemigrations pilotstats --check --dry-run
       - name: Run tests
         env:
           DJANGO_SETTINGS_MODULE: settings_dev
-        run: python manage.py test aa_pvetracker --verbosity=1
+        run: python manage.py test aa_pilotstats --verbosity=1

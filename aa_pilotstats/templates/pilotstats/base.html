@@ -1,0 +1,50 @@
+{% extends 'allianceauth/base-bs5.html' %}
+{% load i18n static %}
+
+{% block content %}
+<div class="pilotstats-app text-body">
+    <ul class="nav nav-pills flex-wrap gap-1 pstats-nav" aria-label="{% trans 'Pilot Stats sections' %}">
+        {% with url_name=request.resolver_match.url_name %}
+        <li class="nav-item">
+            <a href="{% url 'pilotstats:leaderboard' %}"
+               class="nav-link{% if url_name == 'leaderboard' %} active{% endif %}"
+               {% if url_name == 'leaderboard' %}aria-current="page"{% endif %}>
+                {% trans "Leaderboard" %}
+            </a>
+        </li>
+        {% if perms.pilotstats.basic_access %}
+        <li class="nav-item">
+            <a href="{% url 'pilotstats:upload' %}"
+               class="nav-link{% if url_name == 'upload' %} active{% endif %}"
+               {% if url_name == 'upload' %}aria-current="page"{% endif %}>
+                {% trans "Upload" %}
+            </a>
+        </li>
+        <li class="nav-item">
+            <a href="{% url 'pilotstats:my_uploads' %}"
+               class="nav-link{% if url_name == 'my_uploads' or url_name == 'delete_upload' %} active{% endif %}"
+               {% if url_name == 'my_uploads' or url_name == 'delete_upload' %}aria-current="page"{% endif %}>
+                {% trans "My Uploads" %}
+            </a>
+        </li>
+        {% endif %}
+        <li class="nav-item">
+            <a href="{% url 'pilotstats:events' %}"
+               class="nav-link{% if url_name == 'events' %} active{% endif %}"
+               {% if url_name == 'events' %}aria-current="page"{% endif %}>
+                {% trans "Events" %}
+            </a>
+        </li>
+        {% endwith %}
+    </ul>
+    {% block pilotstats_content %}{% endblock %}
+</div>
+{% endblock content %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'pilotstats/css/pilotstats.css' %}">
+{% endblock extra_css %}
+
+{% block extra_javascript %}
+<script src="{% static 'pilotstats/js/dropzone.js' %}" defer></script>
+{% endblock extra_javascript %}

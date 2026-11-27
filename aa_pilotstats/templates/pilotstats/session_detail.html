@@ -1,0 +1,12 @@
+{% extends 'pilotstats/base.html' %}
+{% load i18n %}
+
+{% block pilotstats_content %}
+<p class="text-body-secondary small mb-3">
+    <a href="{% url 'pilotstats:leaderboard' %}">{% trans "Leaderboard" %}</a>
+    {% if perms.pilotstats.basic_access %}
+    · <a href="{% url 'pilotstats:my_uploads' %}">{% trans "My Uploads" %}</a>
+    {% endif %}
+</p>
+{% include "pilotstats/includes/session_dashboard.html" %}
+{% endblock %}

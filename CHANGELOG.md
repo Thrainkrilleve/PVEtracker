@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.1.0 — renamed to Pilot Stats
+
+**PvE Tracker is now Pilot Stats.** Follow "Upgrading from PvE Tracker" in the README: swap `aa-pvetracker` for `aa-pilotstats`, replace `"aa_pvetracker"` with `"aa_pilotstats"` in `INSTALLED_APPS`, then `migrate` and `collectstatic`.
+
+| | Before | Now |
+|---|---|---|
+| Package | `aa-pvetracker` / `aa_pvetracker` | `aa-pilotstats` / `aa_pilotstats` |
+| Django label | `pvetracker` | `pilotstats` |
+| Permission | `pvetracker.basic_access` | `pilotstats.basic_access` |
+| URLs | `/pvetracker/…`, `pvetracker:` | `/pilotstats/…`, `pilotstats:` |
+
+- **Data and permissions carry over.** The new `0001_initial` renames the old tables in place with their rows, moves the content types so `basic_access` group grants keep working, renames the permission's display name, and removes PvE Tracker's migration rows. A fresh install just creates the tables.
+- Old `/pvetracker/…` links redirect permanently to `/pilotstats/…`, with the query string kept.
+- System check `pilotstats.E001` refuses to start while `aa_pvetracker` is still in `INSTALLED_APPS`.
+- Templates, static files, CSS classes (`.pstats-*`), and the dashboard panel moved to the new name. Database index and constraint names keep their `pvetracker_` prefix so upgraded tables match.
+- The PvE Tracker migrations 0001–0004 are replaced by the single Pilot Stats `0001_initial`.
+
 ## v0.0.11
 
 Run `migrate` after upgrading (adds migration `0004_combatlogupload_log_started`).

@@ -3,8 +3,8 @@ build-backend = "hatchling.build"
 requires = ["hatchling"]
 
 [project]
-name = "aa-pvetracker"
-description = "Fleet damage & logi tracking for Alliance Auth — upload EVE combat logs, attribute stats to characters/mains, and see a fleet leaderboard."
+name = "aa-pilotstats"
+description = "Pilot and fleet stats for Alliance Auth: upload EVE combat logs, attribute stats to characters and mains, and see a fleet leaderboard."
 readme = "README.md"
 keywords = ["allianceauth", "eve online", "combat log", "dps", "logi", "leaderboard"]
 license = { file = "LICENSE" }
@@ -28,12 +28,12 @@ dynamic = ["version"]
 dependencies = ["allianceauth>=5.0.0,<6"]
 
 [project.urls]
-Homepage = "https://github.com/Thrainkrilleve/PVEtracker"
-Repository = "https://github.com/Thrainkrilleve/PVEtracker"
-"Bug Tracker" = "https://github.com/Thrainkrilleve/PVEtracker/issues"
+Homepage = "https://github.com/Thrainkrilleve/PilotStats"
+Repository = "https://github.com/Thrainkrilleve/PilotStats"
+"Bug Tracker" = "https://github.com/Thrainkrilleve/PilotStats/issues"
 
 [tool.hatch.version]
-path = "aa_pvetracker/__init__.py"
+path = "aa_pilotstats/__init__.py"
 
 [tool.hatch.build]
-include = ["/aa_pvetracker"]
+include = ["/aa_pilotstats"]

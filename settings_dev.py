@@ -41,7 +41,7 @@ INSTALLED_APPS = [
     "allianceauth.custom_css",
     "allianceauth.crontab",
     "sri",
-    "aa_pvetracker",
+    "aa_pilotstats",
 ]
 
 MIDDLEWARE = [
@@ -90,7 +90,7 @@ TEMPLATES = [
 STATIC_URL = "/static/"
 # Auth's base template hashes static files with django-sri, which asks the
 # storage for a filesystem path before it falls back to the app finders.
-STATIC_ROOT = "/tmp/pvetracker-static"
+STATIC_ROOT = "/tmp/pilotstats-static"
 ROOT_URLCONF = "urls_dev"
 
 SITE_NAME = "example"

@@ -1,0 +1,275 @@
+/* Visual language ported from the standalone prototype's live dashboard —
+   big color-coded stat tiles and hit-quality bar charts — adapted to use
+   Alliance Auth's Bootstrap 5 theme tokens so it still respects the site's
+   light/dark toggle instead of forcing a fixed palette. */
+
+.pilotstats-app {
+    --pstats-out: var(--bs-info);
+    --pstats-in: var(--bs-danger);
+    --pstats-rep: var(--bs-warning);
+    color: var(--bs-body-color);
+}
+
+/*
+ * Bootswatch Darkly is a dark theme that does not set data-bs-theme="dark",
+ * so Bootstrap's dark variable block never runs. Its :root still publishes a
+ * light --bs-tertiary-bg (#f8f9fa) while --bs-body-color is white. Anything
+ * painted with bg-body-tertiary then sits white text on a white surface.
+ * --bs-dark is a dark gray in that theme. Bootstrap Dark already remaps
+ * tertiary under [data-bs-theme=dark]; Flatly's light tertiary stays as-is.
+ */
+[data-theme="darkly"] .pilotstats-app {
+    --bs-tertiary-bg: var(--bs-dark);
+    --bs-tertiary-bg-rgb: var(--bs-dark-rgb);
+}
+
+[data-theme="darkly"] .pilotstats-app .bg-body-tertiary {
+    background-color: var(--bs-dark) !important;
+}
+
+/* ---- Dropzone -------------------------------------------------------- */
+
+.pilotstats-app #pilotstats-dropzone {
+    border: 2px dashed var(--bs-border-color);
+    transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.pilotstats-app #pilotstats-dropzone.pilotstats-dragover {
+    border-color: var(--bs-primary);
+    background-color: var(--bs-primary-bg-subtle);
+}
+
+/* ---- Stat tiles -------------------------------------------------------- */
+
+.pstats-stat-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 0.75rem;
+}
+
+.pstats-stat-card {
+    border: 1px solid var(--bs-border-color);
+    border-radius: 0.5rem;
+    padding: 0.9rem 1rem;
+}
+
+.pstats-stat-card .pstats-stat-label {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--bs-secondary-color);
+}
+
+.pstats-stat-card .pstats-stat-value {
+    font-size: 1.9rem;
+    font-weight: 700;
+    line-height: 1.2;
+    margin-top: 0.15rem;
+}
+
+.pstats-stat-card .pstats-stat-foot {
+    font-size: 0.8rem;
+    color: var(--bs-secondary-color);
+}
+
+.pstats-stat-card.out .pstats-stat-value { color: var(--pstats-out); }
+.pstats-stat-card.in .pstats-stat-value { color: var(--pstats-in); }
+.pstats-stat-card.rep .pstats-stat-value { color: var(--pstats-rep); }
+
+/* ---- Panels ------------------------------------------------------------ */
+
+.pstats-panel {
+    border: 1px solid var(--bs-border-color);
+    border-radius: 0.5rem;
+    padding: 1rem 1.1rem;
+    height: 100%;
+}
+
+.pstats-panel .pstats-panel-title {
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--bs-secondary-color);
+    margin-bottom: 0.6rem;
+}
+
+.pstats-mini-table { width: 100%; font-size: 0.9rem; }
+.pstats-mini-table td { padding: 0.2rem 0; }
+.pstats-mini-table td.pstats-amt { text-align: right; font-variant-numeric: tabular-nums; }
+.pstats-mini-table.out td.pstats-amt { color: var(--pstats-out); }
+.pstats-mini-table.in td.pstats-amt { color: var(--pstats-in); }
+
+/* ---- Hit-quality bars ---------------------------------------------------- */
+
+.pstats-bar-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.85rem;
+    margin-bottom: 0.4rem;
+}
+
+.pstats-bar-row .pstats-bar-name {
+    width: 6.5rem;
+    flex-shrink: 0;
+    color: var(--bs-secondary-color);
+}
+
+.pstats-bar-track {
+    flex: 1;
+    background: var(--bs-secondary-bg);
+    border-radius: 0.25rem;
+    overflow: hidden;
+    height: 0.85rem;
+}
+
+.pstats-bar-fill {
+    height: 100%;
+    border-radius: 0.25rem;
+}
+
+.pstats-bar-row .pstats-bar-num {
+    width: 4.5rem;
+    text-align: right;
+    flex-shrink: 0;
+    color: var(--bs-secondary-color);
+    font-variant-numeric: tabular-nums;
+}
+
+.pstats-bar-fill.q-wrecks { background: #ff9f1c; }
+.pstats-bar-fill.q-hits { background: var(--pstats-out); }
+.pstats-bar-fill.q-penetrates { background: #8b5cf6; }
+.pstats-bar-fill.q-smashes { background: #ef476f; }
+.pstats-bar-fill.q-grazes { background: var(--bs-secondary-color); opacity: 0.6; }
+.pstats-bar-fill.q-glances-off { background: var(--bs-secondary-color); opacity: 0.4; }
+.pstats-bar-fill.q-misses { background: var(--bs-secondary-color); opacity: 0.25; }
+
+/* ---- Recent activity feed ------------------------------------------------ */
+
+.pstats-feed {
+    max-height: 22rem;
+    overflow-y: auto;
+    font-size: 0.85rem;
+}
+
+.pstats-feed-row {
+    display: flex;
+    gap: 0.5rem;
+    padding: 0.2rem 0;
+    border-bottom: 1px solid var(--bs-border-color-translucent, var(--bs-border-color));
+}
+
+.pstats-feed-row .pstats-feed-who {
+    width: 8rem;
+    flex-shrink: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.pstats-feed-row .pstats-feed-who a {
+    color: var(--bs-body-color);
+    text-decoration: none;
+}
+
+.pstats-feed-row .pstats-feed-who a:hover {
+    text-decoration: underline;
+}
+
+.pstats-feed-row .pstats-feed-ts {
+    width: 4.5rem;
+    flex-shrink: 0;
+    color: var(--bs-secondary-color);
+}
+
+.pstats-feed-row .pstats-feed-ts.with-date {
+    width: 7.5rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.pstats-feed-row .pstats-feed-amt {
+    width: 4.5rem;
+    flex-shrink: 0;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.pstats-feed-row.damage_out .pstats-feed-amt { color: var(--pstats-out); }
+.pstats-feed-row.damage_in .pstats-feed-amt { color: var(--pstats-in); }
+.pstats-feed-row.remote_rep_in .pstats-feed-amt,
+.pstats-feed-row.remote_rep_out .pstats-feed-amt { color: var(--pstats-rep); }
+.pstats-feed-row.miss_out,
+.pstats-feed-row.miss_in,
+.pstats-feed-row.jammed { color: var(--bs-secondary-color); font-style: italic; }
+
+.pstats-detail-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.pstats-detail-table td {
+    padding: 0.4rem 0.75rem;
+    border: none;
+}
+
+/* ---- Leaderboard --------------------------------------------------------- */
+
+.pilotstats-app tr[data-bs-toggle="collapse"]:hover {
+    background-color: var(--bs-tertiary-bg);
+}
+
+.pstats-rank {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.6rem;
+    height: 1.6rem;
+    border-radius: 50%;
+    font-size: 0.8rem;
+    font-weight: 700;
+    margin-right: 0.4rem;
+    background: var(--bs-tertiary-bg);
+    color: var(--bs-secondary-color);
+}
+
+.pstats-rank.rank-1 { background: #ffd70033; color: var(--bs-body-color); }
+.pstats-rank.rank-2 { background: #c0c0c033; color: var(--bs-body-color); }
+.pstats-rank.rank-3 { background: #cd7f3233; color: var(--bs-body-color); }
+
+.pstats-col-out { color: var(--pstats-out); font-variant-numeric: tabular-nums; }
+.pstats-col-in { color: var(--pstats-in); font-variant-numeric: tabular-nums; }
+.pstats-col-rep { color: var(--pstats-rep); font-variant-numeric: tabular-nums; }
+
+/* ---- Section nav --------------------------------------------------------- */
+
+.pstats-nav {
+    margin-bottom: 1rem;
+    padding-bottom: 0.65rem;
+    border-bottom: 1px solid var(--bs-border-color);
+}
+
+.pilotstats-app .nav-pills .nav-link.active {
+    background-color: var(--bs-primary);
+    color: var(--bs-nav-pills-link-active-color);
+}
+
+.pstats-table-scroll {
+    overflow-x: auto;
+}
+
+.pstats-summary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem 1.25rem;
+    font-size: 0.9rem;
+}
+
+@media (max-width: 576px) {
+    .pstats-stat-card .pstats-stat-value {
+        font-size: 1.45rem;
+    }
+
+    .pstats-feed-row {
+        flex-wrap: wrap;
+    }
+}

@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Django management utility for PvE Tracker development tasks."""
+"""Django management utility for Pilot Stats development tasks."""
 
 import os
 import sys
