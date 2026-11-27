@@ -7,20 +7,20 @@
     {% trans "Recent combat lines from uploaded sessions. Live updates are not on yet, and payout or kill events will show up beside this list later — not added into the damage numbers." %}
 </p>
 
-<form method="post" class="pvet-panel mb-3">
+<form method="post" class="pvet-panel bg-body-tertiary text-body mb-3">
     {% csrf_token %}
     <div class="form-check mb-2">
         {{ form.hide_from_live_feed }}
-        <label class="form-check-label" for="{{ form.hide_from_live_feed.id_for_label }}">
+        <label class="form-check-label text-body" for="{{ form.hide_from_live_feed.id_for_label }}">
             {{ form.hide_from_live_feed.label }}
         </label>
     </div>
     <p class="text-body-secondary small mb-2">{{ form.hide_from_live_feed.help_text }}</p>
-    <button type="submit" class="btn btn-sm btn-outline-secondary">{% trans "Save" %}</button>
+    <button type="submit" class="btn btn-sm btn-primary">{% trans "Save" %}</button>
 </form>
 
-<div class="pvet-panel">
-    <div class="pvet-panel-title">{% trans "Recent Activity" %}</div>
+<div class="pvet-panel bg-body-tertiary text-body">
+    <div class="pvet-panel-title text-body-secondary">{% trans "Recent Activity" %}</div>
     <div class="pvet-feed">
         {% for item in feed_rows %}
         {% include "pvetracker/includes/feed_line.html" %}

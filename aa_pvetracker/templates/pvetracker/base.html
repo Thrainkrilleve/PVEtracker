@@ -2,33 +2,41 @@
 {% load i18n static %}
 
 {% block content %}
-<div class="pvetracker-app">
-    <nav class="pvet-nav" aria-label="{% trans 'PvE Tracker sections' %}">
+<div class="pvetracker-app text-body">
+    <ul class="nav nav-pills flex-wrap gap-1 pvet-nav" aria-label="{% trans 'PvE Tracker sections' %}">
         {% with url_name=request.resolver_match.url_name %}
-        <a href="{% url 'pvetracker:leaderboard' %}"
-           class="pvet-nav-link{% if url_name == 'leaderboard' %} active{% endif %}"
-           {% if url_name == 'leaderboard' %}aria-current="page"{% endif %}>
-            {% trans "Leaderboard" %}
-        </a>
+        <li class="nav-item">
+            <a href="{% url 'pvetracker:leaderboard' %}"
+               class="nav-link{% if url_name == 'leaderboard' %} active{% endif %}"
+               {% if url_name == 'leaderboard' %}aria-current="page"{% endif %}>
+                {% trans "Leaderboard" %}
+            </a>
+        </li>
         {% if perms.pvetracker.basic_access %}
-        <a href="{% url 'pvetracker:upload' %}"
-           class="pvet-nav-link{% if url_name == 'upload' %} active{% endif %}"
-           {% if url_name == 'upload' %}aria-current="page"{% endif %}>
-            {% trans "Upload" %}
-        </a>
-        <a href="{% url 'pvetracker:my_uploads' %}"
-           class="pvet-nav-link{% if url_name == 'my_uploads' or url_name == 'delete_upload' %} active{% endif %}"
-           {% if url_name == 'my_uploads' or url_name == 'delete_upload' %}aria-current="page"{% endif %}>
-            {% trans "My Uploads" %}
-        </a>
+        <li class="nav-item">
+            <a href="{% url 'pvetracker:upload' %}"
+               class="nav-link{% if url_name == 'upload' %} active{% endif %}"
+               {% if url_name == 'upload' %}aria-current="page"{% endif %}>
+                {% trans "Upload" %}
+            </a>
+        </li>
+        <li class="nav-item">
+            <a href="{% url 'pvetracker:my_uploads' %}"
+               class="nav-link{% if url_name == 'my_uploads' or url_name == 'delete_upload' %} active{% endif %}"
+               {% if url_name == 'my_uploads' or url_name == 'delete_upload' %}aria-current="page"{% endif %}>
+                {% trans "My Uploads" %}
+            </a>
+        </li>
         {% endif %}
-        <a href="{% url 'pvetracker:events' %}"
-           class="pvet-nav-link{% if url_name == 'events' %} active{% endif %}"
-           {% if url_name == 'events' %}aria-current="page"{% endif %}>
-            {% trans "Events" %}
-        </a>
+        <li class="nav-item">
+            <a href="{% url 'pvetracker:events' %}"
+               class="nav-link{% if url_name == 'events' %} active{% endif %}"
+               {% if url_name == 'events' %}aria-current="page"{% endif %}>
+                {% trans "Events" %}
+            </a>
+        </li>
         {% endwith %}
-    </nav>
+    </ul>
     {% block pvetracker_content %}{% endblock %}
 </div>
 {% endblock content %}

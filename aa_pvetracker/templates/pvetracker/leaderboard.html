@@ -19,7 +19,7 @@
     </div>
 </div>
 
-<div class="card">
+<div class="card bg-body-tertiary text-body">
     <div class="card-body">
         {% if rows %}
         <div class="pvet-table-scroll">
@@ -53,7 +53,7 @@
                 <tr class="pvet-detail-row">
                     <td colspan="6" class="p-0 border-0">
                         <div class="collapse" id="row-{{ forloop.counter }}">
-                            <table class="pvet-detail-table">
+                            <table class="pvet-detail-table bg-body-tertiary text-body">
                                 <tbody>
                                     {% for char_name, stats in row.by_character %}
                                     <tr>

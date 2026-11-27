@@ -250,6 +250,9 @@ class AccessAndSessionTests(TestCase):
         self.client.force_login(self.viewer)
         visible = self.client.get(reverse("pvetracker:events"))
         self.assertContains(visible, "Example Target")
+        self.assertContains(visible, "nav-pills")
+        self.assertContains(visible, "bg-body-tertiary")
+        self.assertContains(visible, "text-body")
 
         self.client.force_login(self.owner)
         self.client.post(reverse("pvetracker:events"), {"hide_from_live_feed": "on"})
