@@ -25,23 +25,17 @@
         });
     });
 
-    const note = document.getElementById("pilotstats-dropzone-note");
-
     dropzone.addEventListener("drop", (e) => {
         const files = e.dataTransfer.files;
         if (!files.length) {
             return;
         }
-        // The server reads one file per upload. Rather than silently drop the
-        // rest, refuse a multi-file drop and say why.
-        if (files.length > 1) {
-            if (note) {
-                note.hidden = false;
-            }
+        // Several files: upload each in turn through the scanner (JSON), with
+        // a per-file result list. One file: the normal form post, which shows
+        // that session's dashboard below.
+        if (files.length > 1 && window.pilotstatsScanner) {
+            window.pilotstatsScanner.uploadFiles(files);
             return;
-        }
-        if (note) {
-            note.hidden = true;
         }
         input.files = files;
         if (form) {

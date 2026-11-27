@@ -16,7 +16,12 @@ A note on naming: the installable/importable package is `aa_pilotstats` (distrib
 
 ## Features
 
-- **Drag-and-drop upload** of a Gamelog `.txt` file (from `Documents\EVE\logs\Gamelogs`) — falls back to a plain file picker with no JS. Upload and delete require `pilotstats.basic_access`.
+- **Drag-and-drop upload** of one or more Gamelog `.txt` files (from `Documents\EVE\logs\Gamelogs`). It falls back to a plain file picker with no JS. Upload and delete require `pilotstats.basic_access`.
+- **Gamelog folder scanning** on the Upload page, with no install:
+  - **Chrome / Edge**: pick the Gamelogs folder once. While the tab stays open, it's rescanned every minute and new or grown logs are uploaded, so an ongoing session refreshes about once a minute. The folder is remembered, so the next visit is one "Resume" click (the browser asks for permission again each visit).
+  - **Firefox / Safari**: "Scan a folder once" does the same pass a single time.
+  - Logs are read on the pilot's computer, and only logs whose `Listener:` is one of the user's own characters are sent; the server re-checks ownership anyway.
+  - By default only logs from the last 7 days go up. A checkbox includes older logs for a one-time backfill.
 - **Ownership-verified attribution** — a log is only accepted if its `Listener:` character is one the uploading user actually owns on Alliance Auth.
 - **Main/alt roll-up** — leaderboard rows are grouped by each user's designated main character, with a per-character breakdown on expand. The grouping lives in `aa_pilotstats.leaderboard` so later Discord and ISK/kill columns can use the same buckets.
 - **Re-uploading a growing log updates the same session.** The EVE client keeps writing to one file per client session. A session is identified by its character plus the log header's `Session Started:` time, so uploading a longer copy replaces that session's totals instead of counting the fight twice.
@@ -29,7 +34,8 @@ A note on naming: the installable/importable package is `aa_pilotstats` (distrib
 
 ## Known limitations
 
-- **No live tracking yet.** This version only reads finished (or in-progress, but manually re-uploaded) log files. Sessions uploaded before the "same session" matching was added have no header time stored, so a re-upload of one of those logs is stored as a new session; delete the old one from My Uploads. A later release is planned around the browser File System Access API.
+- **Near-live, not live.** The folder scanner re-uploads a growing log about once a minute while its tab is open; there's no line-by-line live view yet, and closing the tab stops scanning. A desktop watcher that doesn't need an open tab is planned.
+- Sessions uploaded before the "same session" matching was added have no header time stored, so a re-upload of one of those logs is stored as a new session; delete the old one from My Uploads.
 - **No ESI wallet ingest, zKill feed, or Discord post yet.** A `Payout` table (character, time, type, amount, journal id) and a per-session `ship_type_id` are reserved and empty.
 - **Damage, payout ISK, and kill value stay separate.** This version only has the damage and rep columns.
 - **`reps_given_total` is an estimate.** The regex for a logi pilot's own *outgoing* remote-repair line was written by mirroring the incoming-rep line shape, since a real logi pilot's log was not available to test against. If the numbers look off, open an issue with a sample line (amounts and names redacted is fine).
@@ -60,6 +66,15 @@ A note on naming: the installable/importable package is `aa_pilotstats` (distrib
    ```
 
 4. Grant `pilotstats.basic_access` to the group(s) that should upload and delete logs. Viewing does not need it: any logged-in member can open the leaderboard, sessions, and events.
+
+## Settings
+
+Optional, in `local.py`:
+
+| Setting | Default | What it does |
+|---|---|---|
+| `PILOTSTATS_SCANNER_UPLOADS_PER_MINUTE` | `30` | Most uploads one user's folder scanner (or multi-file drop) may send per minute. Over it, the server answers 429 and the scanner waits. `0` turns the limit off. The plain upload form is never limited. |
+| `PILOTSTATS_SCANNER_RECENT_DAYS` | `7` | The scanner only sends logs modified in the last N days unless "include older logs" is ticked. |
 
 ## Upgrading from PvE Tracker
 
