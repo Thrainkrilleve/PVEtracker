@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- **Gamelog folder scanning** on the Upload page.
+  - In Chrome or Edge, pick the Gamelogs folder once. While the tab is open, new and grown logs upload every minute, and a growing log updates its session.
+  - Other browsers can scan a folder once.
+  - Only the user's own characters' logs leave the computer. Logs from the last 7 days go by default, and a checkbox includes older ones.
+- **Multi-file drop**: dropping several logs uploads each in turn, with a per-file result list. A single file still posts the form and shows its session dashboard.
+- The upload endpoint also answers JSON (`Accept: application/json`) with a result code (`created`, `updated`, `duplicate`, `no_new_lines`, `no_combat`, `not_gamelog`, `not_owned`, `other_account`, `too_large`). New `upload/characters.json` lists the user's characters for the scanner's local filter.
+- JSON uploads are limited per user (`PILOTSTATS_SCANNER_UPLOADS_PER_MINUTE`, default 30; 429 with `Retry-After`). The upload form is unchanged and unlimited.
+
 ## v0.1.0 — renamed to Pilot Stats
 
 **PvE Tracker is now Pilot Stats.** Follow "Upgrading from PvE Tracker" in the README: swap `aa-pvetracker` for `aa-pilotstats`, replace `"aa_pvetracker"` with `"aa_pilotstats"` in `INSTALLED_APPS`, then `migrate` and `collectstatic`.
