@@ -1,0 +1,39 @@
+{% load i18n %}
+<div class="pstats-feed-row {{ item.kind }}">
+    {% if item.character_name %}
+    <div class="pstats-feed-who">
+        {% if item.session_id %}
+        <a href="{% url 'pilotstats:session' item.session_id %}">{{ item.character_name }}</a>
+        {% else %}
+        {{ item.character_name }}
+        {% endif %}
+    </div>
+    {% endif %}
+    {% if show_date and item.date %}
+    <div class="pstats-feed-ts with-date" title="{{ item.date }} {{ item.ts }} EVE">{{ item.date|slice:"5:" }} {{ item.ts }}</div>
+    {% else %}
+    <div class="pstats-feed-ts">{{ item.ts }}</div>
+    {% endif %}
+    {% if item.kind == "damage_out" %}
+    <div class="pstats-feed-amt">{{ item.amount }}</div>
+    <div>{% trans "to" %} {{ item.party }} — {{ item.quality }}</div>
+    {% elif item.kind == "damage_in" %}
+    <div class="pstats-feed-amt">{{ item.amount }}</div>
+    <div>{% trans "from" %} {{ item.party }} — {{ item.quality }}</div>
+    {% elif item.kind == "remote_rep_in" %}
+    <div class="pstats-feed-amt">{{ item.amount }}</div>
+    <div>{% trans "repaired by" %} {{ item.party }}</div>
+    {% elif item.kind == "remote_rep_out" %}
+    <div class="pstats-feed-amt">{{ item.amount }}</div>
+    <div>{% trans "repaired to" %} {{ item.party }}</div>
+    {% elif item.kind == "miss_out" %}
+    <div class="pstats-feed-amt">{% trans "miss" %}</div>
+    <div>{% trans "at" %} {{ item.party }}</div>
+    {% elif item.kind == "miss_in" %}
+    <div class="pstats-feed-amt">{% trans "miss" %}</div>
+    <div>{% trans "by" %} {{ item.party }}</div>
+    {% elif item.kind == "jammed" %}
+    <div class="pstats-feed-amt">{% trans "jammed" %}</div>
+    <div>{% trans "by" %} {{ item.party }}</div>
+    {% endif %}
+</div>
