@@ -9,6 +9,10 @@ PilotSettings        Per-user live-feed visibility. Missing row means visible.
 Payout               One ESI wallet-journal payout line. Nothing writes this yet.
 """
 
+# Standard Library
+import datetime
+import re
+
 # Django
 from django.contrib.auth.models import User
 from django.db import models
@@ -511,3 +515,118 @@ class TypeName(models.Model):
 
     def __str__(self) -> str:
         return f"{self.name} ({self.type_id})"
+
+
+# ---------------------------------------------------------------------------
+# Discord webhook
+# ---------------------------------------------------------------------------
+
+
+def _validate_webhook_url(value):
+    # Django
+    from django.core.exceptions import ValidationError
+
+    if value and not DISCORD_WEBHOOK_RE.match(value):
+        raise ValidationError(_("That isn't a Discord webhook URL (https://discord.com/api/webhooks/…)."))
+
+
+def _validate_timezone(value):
+    # Standard Library
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+    # Django
+    from django.core.exceptions import ValidationError
+
+    try:
+        ZoneInfo(value)
+    except (ZoneInfoNotFoundError, ValueError) as exc:
+        raise ValidationError(_("Unknown time zone. Use a name like UTC or Europe/London.")) from exc
+
+
+DISCORD_WEBHOOK_RE = re.compile(
+    r"^https://(?:(?:canary|ptb)\.)?discord(?:app)?\.com/api/webhooks/\d+/[\w-]+/?$"
+)
+
+
+class DiscordSettings(models.Model):
+    """Discord webhook feed. One row, edited in Django admin by staff only.
+
+    The webhook URL is a secret: it lives only here, never in settings files
+    or the repository, and the admin never shows it after saving.
+    """
+
+    enabled = models.BooleanField(default=False)
+    webhook_url = models.CharField(
+        _("webhook URL"), max_length=255, blank=True, validators=[_validate_webhook_url],
+    )
+    daily_post_time = models.TimeField(
+        _("daily post time"), default=datetime.time(11, 5),
+        help_text=_("When the daily top 10 goes out. Default 11:05, just after EVE downtime (UTC)."),
+    )
+    timezone = models.CharField(
+        _("time zone"), max_length=64, default="UTC", validators=[_validate_timezone],
+        help_text=_("Time zone for the daily post time and its 24-hour window. EVE time is UTC."),
+    )
+    payout_threshold_isk = models.DecimalField(
+        _("payout threshold (ISK)"), max_digits=22, decimal_places=2, default=300_000_000,
+        help_text=_("Post a single bounty / ESS / mission payout line at or above this."),
+    )
+    kill_threshold_isk = models.DecimalField(
+        _("kill / loss threshold (ISK)"), max_digits=22, decimal_places=2, default=300_000_000,
+        help_text=_("Post a member's kill or loss worth at least this. Smaller losses are never posted."),
+    )
+    max_posts_per_hour = models.PositiveIntegerField(
+        _("max event posts per hour"), default=6,
+        help_text=_("Events past this in any hour are skipped, not queued. The daily post doesn't count."),
+    )
+    post_records = models.BooleanField(
+        _("post records"), default=True,
+        help_text=_("New personal and fleet records for session damage, session DPS, and 24h payouts."),
+    )
+
+    class Meta:
+        verbose_name = _("Discord settings")
+        verbose_name_plural = _("Discord settings")
+
+    def __str__(self) -> str:
+        return "Discord settings"
+
+    @classmethod
+    def get(cls) -> "DiscordSettings":
+        obj, _created = cls.objects.get_or_create(pk=1)
+        return obj
+
+    @property
+    def is_active(self) -> bool:
+        return self.enabled and bool(self.webhook_url)
+
+
+class DiscordPost(models.Model):
+    """One post (or skipped post) to the webhook. ``key`` makes each post happen once."""
+
+    class Kind(models.TextChoices):
+        DAILY = "daily", _("Daily top 10")
+        PAYOUT = "payout", _("Big payout")
+        KILLMAIL = "killmail", _("Big kill or loss")
+        RECORD = "record", _("Record")
+        TEST = "test", _("Test message")
+
+    class Status(models.TextChoices):
+        QUEUED = "queued", _("Queued")
+        SENT = "sent", _("Sent")
+        SKIPPED = "skipped", _("Skipped (hourly cap)")
+        FAILED = "failed", _("Failed")
+
+    key = models.CharField(max_length=128, unique=True)
+    kind = models.CharField(max_length=16, choices=Kind.choices)
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.QUEUED)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    detail = models.CharField(max_length=255, blank=True)
+
+    class Meta:
+        verbose_name = _("Discord post")
+        verbose_name_plural = _("Discord posts")
+        ordering = ["-created_at"]
+
+    def __str__(self) -> str:
+        return f"{self.kind} {self.key} ({self.status})"

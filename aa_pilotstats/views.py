@@ -219,6 +219,10 @@ def upload(request):
         form = LogUploadForm(request.POST, request.FILES)
         if form.is_valid():
             outcome = _process_upload(request.user, form.cleaned_data["log_file"])
+            if outcome.code in ("created", "updated"):
+                transaction.on_commit(
+                    lambda pk=outcome.session.pk: tasks.check_session_records.delay(pk)
+                )
             if json_mode:
                 return JsonResponse(outcome.as_json())
             messages.add_message(request, outcome.level, outcome.message)
