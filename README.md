@@ -36,8 +36,9 @@ A note on naming: the installable/importable package is `aa_pilotstats` (distrib
 
 - **Near-live, not live.** The folder scanner re-uploads a growing log about once a minute while its tab is open; there's no line-by-line live view yet, and closing the tab stops scanning. A desktop watcher that doesn't need an open tab is planned.
 - Sessions uploaded before the "same session" matching was added have no header time stored, so a re-upload of one of those logs is stored as a new session; delete the old one from My Uploads.
-- **No ESI wallet ingest, zKill feed, or Discord post yet.** A `Payout` table (character, time, type, amount, journal id) and a per-session `ship_type_id` are reserved and empty.
-- **Damage, payout ISK, and kill value stay separate.** This version only has the damage and rep columns.
+- **Only the combat log has DPS.** ESI has no combat or damage data. Payouts, rat counts, killmails and fleet rosters sit next to the Gamelog numbers. Damage, payout ISK, and kill value are never added together.
+- **Payouts lag up to an hour.** ESI caches the wallet journal for an hour, and the journal only goes back 30 days, so payouts from before a pilot connected their wallet (older than 30 days) can't be fetched.
+- **Killmails are mostly PvP.** Killing rats makes no killmail, so the kill columns don't reflect ratting; "Rats" (from bounty ticks) does. Killmail damage is only damage on killmails.
 - **`reps_given_total` is an estimate.** The regex for a logi pilot's own *outgoing* remote-repair line was written by mirroring the incoming-rep line shape, since a real logi pilot's log was not available to test against. If the numbers look off, open an issue with a sample line (amounts and names redacted is fine).
 - **Trust model**: a log's *character* has to be one you own via Alliance Auth, but the *numbers in it* are still whatever that client wrote to disk.
 
@@ -67,6 +68,53 @@ A note on naming: the installable/importable package is `aa_pilotstats` (distrib
 
 4. Grant `pilotstats.basic_access` to the group(s) that should upload and delete logs. Viewing does not need it: any logged-in member can open the leaderboard, sessions, and events.
 
+5. Schedule the background tasks in `local.py`:
+
+   ```python
+   from celery.schedules import crontab
+
+   CELERYBEAT_SCHEDULE["pilotstats_pull_wallet_journals"] = {
+       "task": "aa_pilotstats.tasks.pull_all_wallet_journals",
+       "schedule": crontab(minute="7"),  # hourly; ESI caches the journal for an hour
+   }
+   CELERYBEAT_SCHEDULE["pilotstats_drain_r2z2"] = {
+       "task": "aa_pilotstats.tasks.drain_r2z2",
+       "schedule": crontab(minute="*"),  # zKill killmails, every minute
+   }
+   CELERYBEAT_SCHEDULE["pilotstats_poll_tracked_fleets"] = {
+       "task": "aa_pilotstats.tasks.poll_tracked_fleets",
+       "schedule": crontab(minute="*"),  # fleet rosters, every minute (idle when none tracked)
+   }
+   CELERYBEAT_SCHEDULE["pilotstats_purge_old_payouts"] = {
+       "task": "aa_pilotstats.tasks.purge_old_payouts",
+       "schedule": crontab(minute="23", hour="4"),
+   }
+   ```
+
+   Skip a task to turn its source off. The Gamelog features don't need any of them.
+
+## Data sources
+
+| Source | What it adds | How it's collected | Needs |
+|---|---|---|---|
+| Gamelog | DPS, hit quality, reps | Upload, drag-and-drop, or the folder scanner | `pilotstats.basic_access` |
+| ESI wallet journal | Payout ISK (bounty, ESS, mission), rats killed | Hourly per character that connected its wallet | Optional per pilot: `esi-wallet.read_character_wallet.v1` |
+| zKillboard R2Z2 | Kills, losses, ISK destroyed/lost, killmail damage | Every minute from zKill's public feed | Nothing from pilots |
+| ESI fleet | Who was in a fleet, hull, combat-log coverage | Every minute while a fleet is tracked | Optional, fleet boss only: `esi-fleets.read_fleet.v1` |
+
+**What's stored, and what isn't:**
+- **Wallet:**
+  - Kept: character, time, type, amount and journal id for bounty, ESS and mission payout lines only. For bounty ticks, the per-NPC-type kill counts are derived from the line.
+  - Never stored: balance, other transactions, `*_tax` lines, the other party, or the line's raw text.
+  - Itemized lines are kept for 35 days; daily totals for longer.
+  - A pilot can untick their wallet any time ("Don't read my wallet" on Events), which also deletes what was stored.
+- **zKill:** a mail is kept only when one of your Auth characters in a tracked corporation or alliance is on it, and only those characters are stored.
+  - By default, the corps and alliances of mains in the `Member` state are tracked.
+  - Edit the list under *Admin → Pilot Stats → tracked corporations and alliances*.
+- **Fleets:** pilot id, hull, and first and last time seen. Tracking stops by itself when the boss leaves or hands over the fleet.
+
+ESI calls use django-esi's client with a pinned compatibility date (`PILOTSTATS_ESI_COMPATIBILITY_DATE`) and its built-in ETag and rate-limit handling. Only the wallet journal, character fleet and fleet members routes are called.
+
 ## Settings
 
 Optional, in `local.py`:
@@ -75,6 +123,13 @@ Optional, in `local.py`:
 |---|---|---|
 | `PILOTSTATS_SCANNER_UPLOADS_PER_MINUTE` | `30` | Most uploads one user's folder scanner (or multi-file drop) may send per minute. Over it, the server answers 429 and the scanner waits. `0` turns the limit off. The plain upload form is never limited. |
 | `PILOTSTATS_SCANNER_RECENT_DAYS` | `7` | The scanner only sends logs modified in the last N days unless "include older logs" is ticked. |
+| `PILOTSTATS_ESI_COMPATIBILITY_DATE` | `"2026-11-19"` | ESI compatibility date sent on every call. Bump it only after checking CCP's ESI changelog. |
+| `PILOTSTATS_PAYOUT_RETENTION_DAYS` | `35` | Days itemized payout lines are kept (daily totals are kept longer). |
+| `PILOTSTATS_SESSION_LINK_MINUTES` | `15` | How far before and after a session payouts, kills and fleet hulls are matched to it. |
+| `PILOTSTATS_ZKILL_AUTO_STATES` | `["Member"]` | Auth states whose mains' corporations and alliances are tracked on zKill automatically. |
+| `PILOTSTATS_R2Z2_MAX_PER_RUN` | `300` | zKill sequence files read per run of `drain_r2z2`. |
+| `PILOTSTATS_R2Z2_REQUEST_INTERVAL` | `0.15` | Seconds between zKill requests (their limit is 15 a second per IP). |
+| `PILOTSTATS_USER_AGENT` | `aa-pilotstats/<version> (+repo URL)` | User-Agent for zKill and the SDE. zKill asks for a real one; you can add your site's contact. |
 
 ## Upgrading from PvE Tracker
 

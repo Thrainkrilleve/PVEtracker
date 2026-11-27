@@ -1,5 +1,5 @@
 {% extends 'pilotstats/base.html' %}
-{% load i18n %}
+{% load i18n pilotstats %}
 
 {% block pilotstats_content %}
 <h1 class="mb-3">{% trans "Fleet Leaderboard" %}</h1>
@@ -11,12 +11,15 @@
            class="btn btn-outline-secondary {% if range_key == key %}active{% endif %}">{{ text }}</a>
         {% endfor %}
     </div>
-    <div class="btn-group btn-group-sm" role="group">
+    {% for group_name, sorts in sort_groups %}
+    <div class="btn-group btn-group-sm" role="group" aria-label="{{ group_name }}">
+        <span class="btn btn-sm disabled text-body-secondary pstats-sort-label">{{ group_name }}</span>
         {% for key, text in sorts %}
         <a href="?range={{ range_key }}&sort={{ key }}"
            class="btn btn-outline-secondary {% if sort_key == key %}active{% endif %}">{{ text }}</a>
         {% endfor %}
     </div>
+    {% endfor %}
 </div>
 
 <div class="card bg-body-tertiary text-body">
@@ -31,6 +34,11 @@
                     <th class="text-end">{% trans "Damage Received" %}</th>
                     <th class="text-end">{% trans "Reps Received" %}</th>
                     <th class="text-end">{% trans "Reps Given" %}</th>
+                    <th class="text-end pstats-col-sep" title="{% trans 'Bounty, ESS and mission payouts from the wallet journal' %}">{% trans "Payout ISK" %}</th>
+                    <th class="text-end" title="{% trans 'NPCs killed, from bounty ticks' %}">{% trans "Rats" %}</th>
+                    <th class="text-end pstats-col-sep" title="{% trans 'Kills / losses from zKillboard' %}">{% trans "Kills / Losses" %}</th>
+                    <th class="text-end">{% trans "ISK Destroyed / Lost" %}</th>
+                    <th class="text-end" title="{% trans 'Damage on killmails, not Gamelog damage' %}">{% trans "Killmail Dmg" %}</th>
                     <th></th>
                 </tr>
             </thead>
@@ -48,10 +56,17 @@
                     <td class="text-end pstats-col-in">{{ row.damage_in|floatformat:0 }}</td>
                     <td class="text-end pstats-col-rep">{{ row.reps_received_total|floatformat:0 }}</td>
                     <td class="text-end pstats-col-rep">{{ row.reps_given_total|floatformat:0 }}</td>
+                    <td class="text-end pstats-col-isk pstats-col-sep">
+                        {% if row.payout_isk or row.wallet_connected %}{{ row.payout_isk|isk }}{% else %}<span class="text-body-secondary" title="{% trans 'No wallet connected' %}">—</span>{% endif %}
+                    </td>
+                    <td class="text-end">{% if row.rats_killed or row.wallet_connected %}{{ row.rats_killed|floatformat:0 }}{% else %}<span class="text-body-secondary">—</span>{% endif %}</td>
+                    <td class="text-end pstats-col-sep">{{ row.kills }} / {{ row.losses }}</td>
+                    <td class="text-end small">{{ row.isk_destroyed|isk }} / {{ row.isk_lost|isk }}</td>
+                    <td class="text-end">{{ row.km_damage|floatformat:0 }}</td>
                     <td class="text-end"><i class="fas fa-chevron-down fa-xs text-body-secondary"></i></td>
                 </tr>
                 <tr class="pstats-detail-row">
-                    <td colspan="6" class="p-0 border-0">
+                    <td colspan="11" class="p-0 border-0">
                         <div class="collapse" id="row-{{ forloop.counter }}">
                             <table class="pstats-detail-table bg-body-tertiary text-body">
                                 <tbody>
@@ -62,6 +77,13 @@
                                         <td class="text-end pstats-col-in">{{ stats.damage_in|floatformat:0 }}</td>
                                         <td class="text-end pstats-col-rep">{{ stats.reps_received_total|floatformat:0 }}</td>
                                         <td class="text-end pstats-col-rep">{{ stats.reps_given_total|floatformat:0 }}</td>
+                                        <td></td>
+                                    </tr>
+                                    {% endfor %}
+                                    {% for entry_type, amount in row.payout_by_type.items %}
+                                    <tr>
+                                        <td class="ps-4 text-body-secondary">{{ payout_labels|get_item:entry_type|default:entry_type }}</td>
+                                        <td colspan="4" class="text-end pstats-col-isk">{{ amount|isk }}</td>
                                         <td></td>
                                     </tr>
                                     {% endfor %}
@@ -76,7 +98,7 @@
         </div>
         {% else %}
         <p class="text-body-secondary mb-0">
-            {% trans "No uploads yet in this range." %}
+            {% trans "Nothing in this range yet." %}
             {% if perms.pilotstats.basic_access %}
             <a href="{% url 'pilotstats:upload' %}">{% trans "Upload your first combat log" %}</a>.
             {% endif %}

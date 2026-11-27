@@ -7,7 +7,9 @@ upload_characters— the user's character names, for the folder scanner's local 
 session_detail   — the upload-result dashboard for one stored session
 my_uploads       — a user's own upload history, with delete
 delete_upload    — POST endpoint backing the delete button on my_uploads
-events           — recent activity from stored sessions, plus the feed opt-out
+events           — recent activity and killmails, plus the privacy and wallet cards
+connect_wallet   — optional: grant the wallet scope for a character (django-esi SSO)
+fleet_list / fleet_detail / track_fleet / stop_fleet — fleet-boss roster tracking
 """
 
 # Standard Library
@@ -15,13 +17,16 @@ import hashlib
 import logging
 import time
 from dataclasses import dataclass
+from datetime import timedelta
 from datetime import timezone as dt_timezone
+from decimal import Decimal
 from typing import Optional
 
 # Django
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required, permission_required
 from django.core.cache import cache
+from django.core.exceptions import PermissionDenied
 from django.db import IntegrityError, transaction
 from django.db.models import Count, Sum
 from django.db.models.functions import Coalesce
@@ -32,10 +37,38 @@ from django.urls import reverse
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
-from .app_settings import SCANNER_RECENT_DAYS, SCANNER_UPLOADS_PER_MINUTE
-from .forms import LiveFeedOptOutForm, LogUploadForm
-from .leaderboard import DETAIL_FIELDS, leaderboard_rows, normalize_sort_key, rank_of, within_days
-from .models import CombatLogUpload, PilotSettings
+# Alliance Auth
+from allianceauth.authentication.models import CharacterOwnership
+
+from esi.decorators import token_required
+from esi.exceptions import HTTPClientError
+from esi.models import Token
+
+from . import fleets, payouts, tasks, typenames
+from .app_settings import (
+    FLEET_SCOPE,
+    SCANNER_RECENT_DAYS,
+    SCANNER_UPLOADS_PER_MINUTE,
+    SESSION_LINK_MINUTES,
+    WALLET_SCOPE,
+)
+from .forms import LogUploadForm, PrivacyForm
+from .leaderboard import (
+    DETAIL_FIELDS,
+    SORT_FIELDS,
+    leaderboard_rows,
+    normalize_sort_key,
+    rank_of,
+    within_days,
+)
+from .models import (
+    CombatLogUpload,
+    KillmailParticipant,
+    Payout,
+    PayoutDaily,
+    PilotSettings,
+    TrackedFleet,
+)
 from .parsing import (
     ParseStats,
     iter_events_from_lines,
@@ -53,6 +86,7 @@ MAX_UPLOAD_BYTES = 25 * 1024 * 1024  # a full multi-hour session log is a few MB
 EVENTS_SESSION_LIMIT = 25
 EVENTS_PER_SESSION = 8
 EVENTS_ROW_LIMIT = 60
+EVENTS_KILL_LIMIT = 25
 
 
 def _owned_characters(user) -> dict:
@@ -84,7 +118,7 @@ def _can_delete(user, log_upload) -> bool:
 @login_required
 def leaderboard(request):
     range_key = request.GET.get("range", "30d")
-    sort_key = normalize_sort_key(request.GET.get("sort", "damage_out"))
+    sort_key = normalize_sort_key(request.GET.get("sort", "damage_out"), SORT_FIELDS)
     rows = leaderboard_rows(range_key, sort_key)
 
     return render(request, "pilotstats/leaderboard.html", {
@@ -92,12 +126,25 @@ def leaderboard(request):
         "range_key": range_key,
         "sort_key": sort_key,
         "ranges": [("7d", _("Last 7 days")), ("30d", _("Last 30 days")), ("all", _("All time"))],
-        "sorts": [
-            ("damage_out", _("Damage Dealt")),
-            ("damage_in", _("Damage Received")),
-            ("reps_received_total", _("Reps Received")),
-            ("reps_given_total", _("Reps Given")),
+        "sort_groups": [
+            (_("Gamelog"), [
+                ("damage_out", _("Damage Dealt")),
+                ("damage_in", _("Damage Received")),
+                ("reps_received_total", _("Reps Received")),
+                ("reps_given_total", _("Reps Given")),
+            ]),
+            (_("Wallet"), [
+                ("payout_isk", _("Payout ISK")),
+                ("rats_killed", _("Rats Killed")),
+            ]),
+            (_("Killmails"), [
+                ("kills", _("Kills")),
+                ("isk_destroyed", _("ISK Destroyed")),
+                ("losses", _("Losses")),
+                ("km_damage", _("Killmail Damage")),
+            ]),
         ],
+        "payout_labels": dict(Payout.EntryType.choices),
     })
 
 
@@ -345,7 +392,50 @@ def session_detail(request, pk):
     return render(request, "pilotstats/session_detail.html", {
         "session": session,
         "can_delete": _can_delete(request.user, session),
+        "linked": _session_links(session),
     })
+
+
+def _session_links(session) -> dict:
+    """Payouts, rats, kills/losses, and hull for the session's character and time window.
+
+    Shown next to the Gamelog numbers, never added to them.
+    """
+    if not session.session_started or not session.session_ended:
+        return {}
+    slack = timedelta(minutes=SESSION_LINK_MINUTES)
+    start, end = session.session_started - slack, session.session_ended + slack
+    payouts = list(
+        Payout.objects.filter(character=session.character, occurred_at__range=(start, end))
+        .only("entry_type", "amount", "npc_kills")
+    )
+    payout_total = sum((p.amount for p in payouts), Decimal(0))
+    by_type: dict = {}
+    rats: dict = {}
+    for payout in payouts:
+        by_type[payout.entry_type] = by_type.get(payout.entry_type, Decimal(0)) + payout.amount
+        for type_id, count in (payout.npc_kills or {}).items():
+            rats[int(type_id)] = rats.get(int(type_id), 0) + count
+    participants = list(
+        KillmailParticipant.objects.filter(
+            character=session.character, killmail__killmail_time__range=(start, end),
+        ).select_related("killmail").order_by("killmail__killmail_time")
+    )
+    hull = fleets.hull_for_session(session)
+    ids = set(rats) | {p.killmail.victim_ship_type_id for p in participants} | {hull}
+    return {
+        "payout_total": payout_total,
+        "payouts_by_type": sorted(by_type.items(), key=lambda kv: kv[1], reverse=True),
+        "payout_count": len(payouts),
+        "rats": sorted(rats.items(), key=lambda kv: kv[1], reverse=True),
+        "rat_total": sum(rats.values()),
+        "kills": [p for p in participants if not p.is_victim],
+        "losses": [p for p in participants if p.is_victim],
+        "hull": hull,
+        "names": typenames.names(ids),
+        "payout_labels": dict(Payout.EntryType.choices),
+        "window_minutes": SESSION_LINK_MINUTES,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -394,9 +484,43 @@ def delete_upload(request, pk):
 # ---------------------------------------------------------------------------
 
 
-def _feed_opt_out(user) -> bool:
-    settings_obj = PilotSettings.objects.filter(user=user).only("hide_from_live_feed").first()
-    return bool(settings_obj and settings_obj.hide_from_live_feed)
+def _privacy_initial(user) -> dict:
+    settings_obj = PilotSettings.objects.filter(user=user).first()
+    return {
+        "hide_from_live_feed": bool(settings_obj and settings_obj.hide_from_live_feed),
+        "wallet_opt_out": bool(settings_obj and settings_obj.wallet_opt_out),
+    }
+
+
+def _wallet_characters(user) -> list:
+    """The user's characters, each with whether a wallet token is on file."""
+    granted = set(
+        Token.objects.filter(user=user, scopes__name=WALLET_SCOPE).values_list("character_id", flat=True)
+    )
+    return [
+        {"name": c.character_name, "connected": c.character_id in granted}
+        for c in sorted(_owned_characters(user).values(), key=lambda c: c.character_name)
+    ]
+
+
+def _recent_killmails(limit=EVENTS_KILL_LIMIT) -> list:
+    hidden_users = PilotSettings.objects.filter(hide_from_live_feed=True).values("user_id")
+    hidden_characters = CharacterOwnership.objects.filter(user_id__in=hidden_users).values("character_id")
+    participants = (
+        KillmailParticipant.objects.exclude(character_id__in=hidden_characters)
+        .select_related("killmail", "character")
+        .order_by("-killmail__killmail_time")[: limit * 3]
+    )
+    rows, seen = [], set()
+    for p in participants:
+        key = (p.killmail_id, p.is_victim)
+        if key in seen:
+            continue
+        seen.add(key)
+        rows.append(p)
+        if len(rows) >= limit:
+            break
+    return rows
 
 
 def _session_date(upload) -> str:
@@ -445,22 +569,113 @@ def _recent_feed_rows():
 @login_required
 def events(request):
     if request.method == "POST":
-        form = LiveFeedOptOutForm(request.POST)
+        form = PrivacyForm(request.POST)
         if form.is_valid():
             settings_obj, _created = PilotSettings.objects.get_or_create(user=request.user)
+            turning_wallet_off = form.cleaned_data["wallet_opt_out"] and not settings_obj.wallet_opt_out
             settings_obj.hide_from_live_feed = form.cleaned_data["hide_from_live_feed"]
-            settings_obj.save(update_fields=["hide_from_live_feed"])
-            messages.success(request, _("Live-feed visibility saved."))
+            settings_obj.wallet_opt_out = form.cleaned_data["wallet_opt_out"]
+            settings_obj.save(update_fields=["hide_from_live_feed", "wallet_opt_out"])
+            if turning_wallet_off:
+                payouts.delete_wallet_data(request.user)
+                messages.success(request, _("Saved. Your stored payouts and rat counts were deleted."))
+            else:
+                messages.success(request, _("Privacy settings saved."))
             return redirect("pilotstats:events")
     else:
-        form = LiveFeedOptOutForm(
-            initial={"hide_from_live_feed": _feed_opt_out(request.user)},
-        )
+        form = PrivacyForm(initial=_privacy_initial(request.user))
 
+    killmails = _recent_killmails()
     return render(request, "pilotstats/events.html", {
         "form": form,
         "feed_rows": _recent_feed_rows(),
+        "killmails": killmails,
+        "names": typenames.names(p.killmail.victim_ship_type_id for p in killmails),
+        "wallet_characters": _wallet_characters(request.user),
     })
+
+
+@login_required
+@token_required(scopes=[WALLET_SCOPE])
+def connect_wallet(request, token):
+    """Optional: grant the wallet scope for one character. Payout lines are read hourly."""
+    if not CharacterOwnership.objects.filter(user=request.user, character__character_id=token.character_id).exists():
+        messages.error(request, _("That character isn't one of yours on Auth, so its wallet won't be read."))
+        return redirect("pilotstats:events")
+    if PilotSettings.objects.filter(user=request.user, wallet_opt_out=True).exists():
+        messages.warning(
+            request,
+            _("Wallet access granted, but \"Don't read my wallet\" is on. Untick it to start reading payouts."),
+        )
+        return redirect("pilotstats:events")
+    tasks.pull_wallet_journal.delay(token.character_id)
+    messages.success(
+        request,
+        _("Wallet connected for %(name)s. Payouts appear within the hour (ESI caches the journal for an hour).")
+        % {"name": token.character_name},
+    )
+    return redirect("pilotstats:events")
+
+
+# ---------------------------------------------------------------------------
+# Fleets
+# ---------------------------------------------------------------------------
+
+
+@login_required
+def fleet_list(request):
+    tracked = (
+        TrackedFleet.objects.select_related("boss", "started_by")
+        .annotate(pilots=Count("members__eve_character_id", distinct=True))[:50]
+    )
+    return render(request, "pilotstats/fleets.html", {"fleets": tracked})
+
+
+@login_required
+def fleet_detail(request, pk):
+    fleet = get_object_or_404(TrackedFleet.objects.select_related("boss", "started_by"), pk=pk)
+    cover = fleets.coverage(fleet)
+    ship_ids = {hull for row in cover.rows for hull in row["hulls"]}
+    return render(request, "pilotstats/fleet_detail.html", {
+        "fleet": fleet,
+        "coverage": cover,
+        "names": typenames.names(ship_ids),
+        "can_stop": fleet.is_open and _can_stop_fleet(request.user, fleet),
+    })
+
+
+@login_required
+@token_required(scopes=[FLEET_SCOPE])
+def track_fleet(request, token):
+    try:
+        tracked = fleets.start_tracking(request.user, token)
+    except fleets.FleetError as exc:
+        messages.error(request, str(exc))
+        return redirect("pilotstats:fleets")
+    except HTTPClientError:
+        messages.error(request, _("ESI refused the fleet lookup. Try again in a minute."))
+        return redirect("pilotstats:fleets")
+    tasks.poll_fleet_now.delay(tracked.pk)
+    messages.success(request, _("Tracking your fleet. The roster updates about once a minute."))
+    return redirect("pilotstats:fleet", pk=tracked.pk)
+
+
+def _can_stop_fleet(user, fleet) -> bool:
+    if fleet.started_by_id == user.id:
+        return True
+    return CharacterOwnership.objects.filter(user=user, character=fleet.boss).exists()
+
+
+@login_required
+def stop_fleet(request, pk):
+    fleet = get_object_or_404(TrackedFleet, pk=pk, ended_at__isnull=True)
+    if request.method != "POST":
+        return redirect("pilotstats:fleet", pk=pk)
+    if not _can_stop_fleet(request.user, fleet):
+        raise PermissionDenied
+    fleets.end_tracking(fleet, f"Stopped by {request.user.username}.")
+    messages.success(request, _("Stopped tracking that fleet."))
+    return redirect("pilotstats:fleet", pk=pk)
 
 
 # ---------------------------------------------------------------------------
@@ -495,11 +710,22 @@ def pilotstats_dashboard(request) -> str:
         .defer(*DETAIL_FIELDS)
         .first()
     )
+    since = timezone.now() - timedelta(days=7)
+    payout_isk = PayoutDaily.objects.filter(
+        character__in=owned, day__gte=since.date(),
+    ).aggregate(total=Sum("amount"))["total"] or 0
+    kills = (
+        KillmailParticipant.objects.filter(
+            character__in=owned, is_victim=False, killmail__killmail_time__gte=since,
+        ).values("killmail_id").distinct().count()
+    )
     rows = leaderboard_rows("7d", "damage_out")
     return render_to_string("pilotstats/dashboard_widget.html", {
         "damage_out": totals["damage_out"] or 0,
         "reps_given": totals["reps_given"] or 0,
         "upload_count": totals["upload_count"],
+        "payout_isk": payout_isk,
+        "kills": kills,
         "last_session": last,
         "rank": rank_of(rows, user),
         "can_upload": user.has_perm("pilotstats.basic_access"),
