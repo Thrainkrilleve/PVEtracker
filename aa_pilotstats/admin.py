@@ -1,10 +1,13 @@
 """Pilot Stats Django Admin"""
 
 # Django
-from django.contrib import admin
+from django import forms
+from django.contrib import admin, messages
 
 from .models import (
     CombatLogUpload,
+    DiscordPost,
+    DiscordSettings,
     FleetMember,
     Killmail,
     KillmailParticipant,
@@ -144,3 +147,75 @@ class TrackedFleetAdmin(ReadOnlyAdmin):
 class TypeNameAdmin(ReadOnlyAdmin):
     list_display = ("type_id", "name", "group_name", "fetched_at")
     search_fields = ("name", "type_id")
+
+
+class DiscordSettingsForm(forms.ModelForm):
+    """The webhook URL is write-only: it's never shown again after saving."""
+
+    webhook_url = forms.CharField(
+        required=False,
+        widget=forms.PasswordInput(render_value=False, attrs={"autocomplete": "off", "size": 80}),
+        help_text="Discord channel → Integrations → Webhooks → Copy URL. Leave blank to keep the saved one.",
+    )
+    clear_webhook = forms.BooleanField(required=False, label="Remove the saved webhook URL")
+
+    class Meta:
+        model = DiscordSettings
+        fields = "__all__"
+
+    def clean_webhook_url(self):
+        value = (self.cleaned_data.get("webhook_url") or "").strip()
+        if not value and self.instance.pk:
+            return self.instance.webhook_url
+        return value
+
+    def save(self, commit=True):
+        obj = super().save(commit=False)
+        if self.cleaned_data.get("clear_webhook"):
+            obj.webhook_url = ""
+            obj.enabled = False
+        if commit:
+            obj.save()
+        return obj
+
+
+@admin.register(DiscordSettings)
+class DiscordSettingsAdmin(admin.ModelAdmin):
+    form = DiscordSettingsForm
+    list_display = ("__str__", "enabled", "webhook_saved", "daily_post_time", "timezone",
+                    "payout_threshold_isk", "kill_threshold_isk", "max_posts_per_hour", "post_records")
+    actions = ["send_test_message"]
+    fieldsets = (
+        (None, {"fields": ("enabled", "webhook_url", "clear_webhook")}),
+        ("Daily top 10", {"fields": ("daily_post_time", "timezone")}),
+        ("Major events", {"fields": ("payout_threshold_isk", "kill_threshold_isk",
+                                     "max_posts_per_hour", "post_records")}),
+    )
+
+    @admin.display(boolean=True, description="webhook saved")
+    def webhook_saved(self, obj):
+        return bool(obj.webhook_url)
+
+    def has_add_permission(self, request):
+        return not DiscordSettings.objects.exists()
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    @admin.action(description="Send a test message to the webhook")
+    def send_test_message(self, request, queryset):
+        from . import discord
+
+        config = DiscordSettings.get()
+        if not config.is_active:
+            self.message_user(request, "Enable the feed and save a webhook URL first.", messages.WARNING)
+            return
+        discord.test_message(config)
+        self.message_user(request, "Test message queued. It appears in the channel within a few seconds.")
+
+
+@admin.register(DiscordPost)
+class DiscordPostAdmin(ReadOnlyAdmin):
+    list_display = ("created_at", "kind", "status", "key", "detail")
+    list_filter = ("kind", "status")
+    search_fields = ("key", "detail")

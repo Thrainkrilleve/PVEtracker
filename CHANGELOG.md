@@ -2,7 +2,13 @@
 
 ## Unreleased
 
-Run `migrate` (adds `0002_esi_zkill_fleets`) and add the new beat tasks from the README.
+Run `migrate` (adds `0002_esi_zkill_fleets` and `0003_discord`) and add the new beat tasks from the README.
+
+- **Discord webhook feed** (Admin → Pilot Stats → Discord settings).
+  - A daily top 10 for damage and payout ISK (last 24 h), with the biggest kills and losses, at a set time and time zone.
+  - Major events: a payout line or a member's kill/loss over a threshold (default 300M), and new fleet / personal records for session damage, session DPS, and payouts in a day.
+  - Every post goes out once, event posts are capped per hour, and nobody is ever pinged. Embeds stay within Discord's limits and long posts split across messages. 429s and server errors are retried.
+  - The webhook URL lives in the database only and is write-only in admin. There's a "send a test message" admin action.
 
 - **Wallet payouts (optional per pilot).**
   - Pilots can connect a character's wallet (`esi-wallet.read_character_wallet.v1`). An hourly task stores bounty, ESS and mission payout lines, nothing else, and adds a **Payout ISK** column (with a per-type breakdown) to the leaderboard.
