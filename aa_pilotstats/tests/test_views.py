@@ -435,7 +435,9 @@ class PayoutStubTests(TestCase):
         names = {field.name for field in Payout._meta.fields}
         self.assertEqual(
             names,
-            {"id", "character", "occurred_at", "entry_type", "amount", "ref_id"},
+            # npc_kills: derived {npc type: count} for bounty_prizes lines only;
+            # the journal's raw reason/description, balance, tax and parties never are.
+            {"id", "character", "occurred_at", "entry_type", "amount", "ref_id", "npc_kills"},
         )
 
     def test_ship_type_id_starts_empty(self):

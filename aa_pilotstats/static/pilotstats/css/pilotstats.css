@@ -301,3 +301,30 @@
         flex-wrap: wrap;
     }
 }
+
+/* ---- Other sources (wallet, killmails, fleets) ---------------------------- */
+
+.pilotstats-app {
+    --pstats-isk: var(--bs-warning-text-emphasis, var(--bs-warning));
+}
+
+.pstats-col-isk { color: var(--pstats-isk); font-variant-numeric: tabular-nums; }
+.pstats-col-sep { border-left: 1px solid var(--bs-border-color-translucent, var(--bs-border-color)); }
+.pstats-sort-label { pointer-events: none; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.04em; }
+
+.pstats-link-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+    gap: 0.75rem;
+}
+
+.pstats-km-row {
+    display: flex;
+    gap: 0.5rem;
+    padding: 0.2rem 0;
+    border-bottom: 1px solid var(--bs-border-color-translucent, var(--bs-border-color));
+    font-size: 0.875rem;
+}
+.pstats-km-row .pstats-km-what { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pstats-km-row.loss .pstats-km-value { color: var(--pstats-in); }
+.pstats-km-row.kill .pstats-km-value { color: var(--pstats-out); }

@@ -2,14 +2,16 @@
 Shared fleet leaderboard roll-up.
 
 Web views, the dashboard widget, and a later Discord digest all group the
-same way: each user's sessions fold up to their designated main character,
-with a per-character breakdown underneath. Extra numeric columns (payout
-ISK, kill counts) can be summed later by passing ``sum_fields`` — damage,
-ISK, and kill value stay separate numbers.
+same way: everything a user's characters did folds up to their designated
+main character. Gamelog sessions give damage and reps; wallet payouts, rat
+counts, and killmails are merged into the same buckets as separate
+columns. Damage, ISK, and kill value are never added together.
 """
 
 # Standard Library
+from collections import defaultdict
 from datetime import timedelta
+from decimal import Decimal
 
 SUM_FIELDS = (
     "damage_out",
@@ -17,6 +19,19 @@ SUM_FIELDS = (
     "reps_received_total",
     "reps_given_total",
 )
+
+# Columns from the other sources (see merge_sources).
+SOURCE_FIELDS = (
+    "payout_isk",
+    "rats_killed",
+    "kills",
+    "losses",
+    "isk_destroyed",
+    "isk_lost",
+    "km_damage",
+)
+
+SORT_FIELDS = SUM_FIELDS + SOURCE_FIELDS
 
 # "all" is the absence of a cutoff, not a day count.
 RANGE_DAYS = {"7d": 7, "30d": 30}
@@ -147,17 +162,25 @@ def rank_of(rows, user):
     return None
 
 
-def leaderboard_rows(range_key="30d", sort_key="damage_out", *, sum_fields=SUM_FIELDS, now=None):
+def leaderboard_rows(
+    range_key="30d", sort_key="damage_out", *, sum_fields=SUM_FIELDS, now=None, sources=True,
+):
     """
-    Roll up stored combat-log sessions.
+    Roll up stored combat-log sessions, then (``sources=True``) merge in
+    payouts, rat counts, and killmails per main.
 
     ``range_key`` is ``"7d"``, ``"30d"``, or anything else (treated as all time,
     matching the leaderboard's existing query-string behavior). The window is
-    on when the session was flown, not when it was uploaded (see
+    on when things happened, not when they were uploaded or fetched (see
     ``within_days``).
     """
+    # Django
+    from django.utils import timezone
+
     from .models import CombatLogUpload
 
+    if now is None:
+        now = timezone.now()
     qs = CombatLogUpload.objects.select_related(
         "character",
         "uploaded_by",
@@ -167,4 +190,138 @@ def leaderboard_rows(range_key="30d", sort_key="damage_out", *, sum_fields=SUM_F
     days = RANGE_DAYS.get(range_key)
     if days is not None:
         qs = within_days(qs, days, now)
-    return rollup_sessions(qs, sort_key=sort_key, sum_fields=sum_fields)
+    session_sort = sort_key if sort_key in sum_fields else sum_fields[0]
+    rows = rollup_sessions(qs, sort_key=session_sort, sum_fields=sum_fields)
+    if not sources:
+        return rows
+    rows = merge_sources(rows, days=days, now=now)
+    sort_key = normalize_sort_key(sort_key, tuple(sum_fields) + SOURCE_FIELDS)
+    rows.sort(key=lambda row: row.get(sort_key) or 0, reverse=True)
+    return rows
+
+
+def character_buckets(character_pks) -> dict:
+    """``{EveCharacter pk: (key, label, main, user_id)}`` using the same keys as rollup_sessions.
+
+    A character nobody owns on Auth gets its own ``char:<pk>`` bucket.
+    """
+    # Alliance Auth
+    from allianceauth.authentication.models import CharacterOwnership
+    from allianceauth.eveonline.models import EveCharacter
+
+    result = {}
+    owned = CharacterOwnership.objects.filter(character_id__in=character_pks).select_related(
+        "user", "user__profile", "user__profile__main_character",
+    )
+    for ownership in owned:
+        user = ownership.user
+        main = user_main(user)
+        key = main.character_id if main else f"user:{user.pk}"
+        label = main.character_name if main else user.username
+        result[ownership.character_id] = (key, label, main, user.pk)
+    for character in EveCharacter.objects.filter(pk__in=set(character_pks) - set(result)):
+        result[character.pk] = (f"char:{character.pk}", character.character_name, None, None)
+    return result
+
+
+def merge_sources(rows, *, days=None, now=None):
+    """Add payout ISK, rat counts, and killmail columns to *rows* (and new rows as needed).
+
+    Each killmail counts once per bucket, so two alts of one main on the same
+    kill are one kill and one kill's value. Killmail damage is summed per
+    character (it's that character's own damage on the mail).
+    """
+    # Django
+    from django.db.models import Sum
+    from django.utils import timezone
+
+    from esi.models import Token
+
+    from .app_settings import WALLET_SCOPE
+    from .models import KillmailParticipant, NpcKillDaily, PayoutDaily, PilotSettings
+
+    if now is None:
+        now = timezone.now()
+    since = now - timedelta(days=days) if days else None
+
+    payout_qs = PayoutDaily.objects.all()
+    npc_qs = NpcKillDaily.objects.all()
+    km_qs = KillmailParticipant.objects.all()
+    if since is not None:
+        payout_qs = payout_qs.filter(day__gte=since.date())
+        npc_qs = npc_qs.filter(day__gte=since.date())
+        km_qs = km_qs.filter(killmail__killmail_time__gte=since)
+
+    payouts = list(payout_qs.values("character_id", "entry_type").annotate(total=Sum("amount")))
+    rats = list(npc_qs.values("character_id").annotate(total=Sum("count")))
+    entries = list(km_qs.values(
+        "character_id", "is_victim", "killmail_id", "killmail__total_value", "damage",
+    ))
+
+    character_pks = (
+        {p["character_id"] for p in payouts}
+        | {r["character_id"] for r in rats}
+        | {e["character_id"] for e in entries}
+    )
+    buckets_for = character_buckets(character_pks)
+    by_key = {row["key"]: row for row in rows}
+
+    def bucket(character_pk):
+        key, label, main, user_id = buckets_for[character_pk]
+        row = by_key.get(key)
+        if row is None:
+            row = {
+                "key": key, "label": label, "main": main, "user_id": user_id,
+                "upload_count": 0, "by_character": [],
+                **{field: 0 for field in SUM_FIELDS},
+            }
+            by_key[key] = row
+            rows.append(row)
+        return row
+
+    for row in rows:
+        row.update({
+            "payout_isk": Decimal(0), "payout_by_type": defaultdict(Decimal),
+            "rats_killed": 0, "km_damage": 0,
+            "_kills": {}, "_losses": {},
+        })
+
+    for item in payouts:
+        row = bucket(item["character_id"])
+        _ensure_source_fields(row)
+        row["payout_isk"] += item["total"] or 0
+        row["payout_by_type"][item["entry_type"]] += item["total"] or 0
+    for item in rats:
+        row = bucket(item["character_id"])
+        _ensure_source_fields(row)
+        row["rats_killed"] += item["total"] or 0
+    for item in entries:
+        row = bucket(item["character_id"])
+        _ensure_source_fields(row)
+        value = item["killmail__total_value"] or Decimal(0)
+        if item["is_victim"]:
+            row["_losses"][item["killmail_id"]] = value
+        else:
+            row["_kills"][item["killmail_id"]] = value
+            row["km_damage"] += item["damage"] or 0
+
+    opted_out = set(PilotSettings.objects.filter(wallet_opt_out=True).values_list("user_id", flat=True))
+    wallet_users = set(
+        Token.objects.filter(scopes__name=WALLET_SCOPE).values_list("user_id", flat=True)
+    ) - opted_out
+    for row in rows:
+        _ensure_source_fields(row)
+        kills, losses = row.pop("_kills"), row.pop("_losses")
+        row["kills"], row["isk_destroyed"] = len(kills), sum(kills.values(), Decimal(0))
+        row["losses"], row["isk_lost"] = len(losses), sum(losses.values(), Decimal(0))
+        row["payout_by_type"] = dict(row["payout_by_type"])
+        row["wallet_connected"] = row.get("user_id") in wallet_users
+    return rows
+
+
+def _ensure_source_fields(row):
+    if "_kills" not in row and "kills" not in row:
+        row.update({
+            "payout_isk": Decimal(0), "payout_by_type": defaultdict(Decimal),
+            "rats_killed": 0, "km_damage": 0, "_kills": {}, "_losses": {},
+        })

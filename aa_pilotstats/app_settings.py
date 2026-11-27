@@ -7,6 +7,48 @@ Read once at import; restart Auth after changing one.
 # Django
 from django.conf import settings
 
+from . import __version__
+
+# Shared ---------------------------------------------------------------------
+
+USER_AGENT = getattr(
+    settings,
+    "PILOTSTATS_USER_AGENT",
+    f"aa-pilotstats/{__version__} (+https://github.com/Thrainkrilleve/PilotStats)",
+)
+
+# ESI ------------------------------------------------------------------------
+
+# Reviewed ESI compatibility date. ESI serves the oldest supported behaviour
+# when none is sent, so this is pinned on purpose; bump it after checking the
+# changelog at https://developers.eveonline.com/docs/services/esi/overview/
+ESI_COMPATIBILITY_DATE = getattr(settings, "PILOTSTATS_ESI_COMPATIBILITY_DATE", "2026-11-19")
+
+WALLET_SCOPE = "esi-wallet.read_character_wallet.v1"
+FLEET_SCOPE = "esi-fleets.read_fleet.v1"
+
+# Itemized payout lines are kept a little longer than the journal's 30-day
+# window so a journal id is never seen twice; daily totals are kept forever.
+PAYOUT_RETENTION_DAYS = int(getattr(settings, "PILOTSTATS_PAYOUT_RETENTION_DAYS", 35))
+
+# Payouts, kills, and fleet hulls are matched to a Gamelog session when they
+# fall within this many minutes of it.
+SESSION_LINK_MINUTES = int(getattr(settings, "PILOTSTATS_SESSION_LINK_MINUTES", 15))
+
+# zKillboard R2Z2 ---------------------------------------------------------------
+
+R2Z2_URL = getattr(settings, "PILOTSTATS_R2Z2_URL", "https://r2z2.zkillboard.com/ephemeral").rstrip("/")
+# Files fetched per run of drain_r2z2 (it runs every minute).
+R2Z2_MAX_PER_RUN = int(getattr(settings, "PILOTSTATS_R2Z2_MAX_PER_RUN", 300))
+# Pause between files. zKill allows 15 requests/second per IP; stay far under.
+R2Z2_REQUEST_INTERVAL = float(getattr(settings, "PILOTSTATS_R2Z2_REQUEST_INTERVAL", 0.15))
+# Auth states whose mains' corporations and alliances are tracked automatically.
+ZKILL_AUTO_STATES = list(getattr(settings, "PILOTSTATS_ZKILL_AUTO_STATES", ["Member"]))
+
+# EVE static data -------------------------------------------------------------
+
+SDE_URL = getattr(settings, "PILOTSTATS_SDE_URL", "https://sde.evetech.net/tranquility/latest").rstrip("/")
+
 # Gamelog folder scanner ------------------------------------------------------
 
 # Most uploads one user's scanner may send per minute. A first scan of a

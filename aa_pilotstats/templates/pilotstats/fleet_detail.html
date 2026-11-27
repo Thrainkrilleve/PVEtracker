@@ -1,0 +1,80 @@
+{% extends 'pilotstats/base.html' %}
+{% load i18n pilotstats %}
+
+{% block pilotstats_content %}
+<p class="text-body-secondary small mb-2"><a href="{% url 'pilotstats:fleets' %}">{% trans "Fleets" %}</a></p>
+
+{% if messages %}
+{% for message in messages %}
+<div class="alert alert-{{ message.tags }}">{{ message }}</div>
+{% endfor %}
+{% endif %}
+
+<div class="d-flex justify-content-between align-items-baseline flex-wrap gap-2 mb-2">
+    <h1 class="h3 mb-0">{% blocktrans with boss=fleet.boss.character_name %}{{ boss }}'s fleet{% endblocktrans %}</h1>
+    {% if can_stop %}
+    <form method="post" action="{% url 'pilotstats:stop_fleet' fleet.pk %}">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-sm btn-outline-secondary">{% trans "Stop tracking" %}</button>
+    </form>
+    {% endif %}
+</div>
+<p class="text-body-secondary small">
+    {% trans "Started" %} {{ fleet.started_at }}
+    {% if fleet.is_open %}
+    · {% trans "tracking" %}{% if fleet.last_polled_at %}, {% trans "last update" %} {{ fleet.last_polled_at|time:"H:i" }}{% endif %}
+    {% else %}
+    · {% trans "ended" %} {{ fleet.ended_at }}{% if fleet.end_reason %} ({{ fleet.end_reason }}){% endif %}
+    {% endif %}
+</p>
+
+<div class="pstats-stat-grid mb-3">
+    <div class="pstats-stat-card bg-body-tertiary text-body">
+        <div class="pstats-stat-label text-body-secondary">{% trans "Combat log coverage" %}</div>
+        <div class="pstats-stat-value">{{ coverage.with_log }} / {{ coverage.on_auth }}</div>
+        <div class="pstats-stat-foot text-body-secondary">{% trans "Auth pilots who uploaded a log" %}</div>
+    </div>
+    <div class="pstats-stat-card bg-body-tertiary text-body">
+        <div class="pstats-stat-label text-body-secondary">{% trans "Not on Auth" %}</div>
+        <div class="pstats-stat-value">{{ coverage.not_on_auth }}</div>
+        <div class="pstats-stat-foot text-body-secondary">{% trans "pilots in fleet" %}</div>
+    </div>
+</div>
+
+<div class="card bg-body-tertiary text-body">
+    <div class="card-body">
+        {% if coverage.rows %}
+        <div class="pstats-table-scroll">
+        <table class="table align-middle mb-0">
+            <thead>
+                <tr>
+                    <th>{% trans "Pilot" %}</th>
+                    <th>{% trans "Hull" %}</th>
+                    <th>{% trans "In fleet" %}</th>
+                    <th>{% trans "Combat log" %}</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in coverage.rows %}
+                <tr>
+                    <td>
+                        {% if row.character %}{{ row.character.character_name }}{% else %}<span class="text-body-secondary">{% trans "not on Auth" %} ({{ row.eve_character_id }})</span>{% endif %}
+                    </td>
+                    <td class="small">{% for hull in row.hulls %}{{ hull|type_name:names }}{% if not forloop.last %}, {% endif %}{% endfor %}</td>
+                    <td class="small text-body-secondary">{{ row.first_seen|time:"H:i" }}–{{ row.last_seen|time:"H:i" }}</td>
+                    <td class="small">
+                        {% if row.session %}<a href="{% url 'pilotstats:session' row.session.pk %}">{{ row.session.damage_out }} {% trans "damage" %}</a>
+                        {% elif row.character %}<span class="text-warning">{% trans "no log uploaded" %}</span>
+                        {% else %}—{% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        </div>
+        {% else %}
+        <p class="text-body-secondary mb-0">{% trans "No roster yet. It fills in within a minute of tracking starting." %}</p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
