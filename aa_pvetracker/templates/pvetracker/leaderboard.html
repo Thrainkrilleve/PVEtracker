@@ -2,19 +2,9 @@
 {% load i18n %}
 
 {% block pvetracker_content %}
-<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
-    <h1 class="mb-0">{% trans "Fleet Leaderboard" %}</h1>
-    <div class="d-flex gap-2">
-        <a href="{% url 'pvetracker:upload' %}" class="btn btn-primary">
-            <i class="fas fa-upload fa-fw"></i> {% trans "Upload a log" %}
-        </a>
-        <a href="{% url 'pvetracker:my_uploads' %}" class="btn btn-outline-secondary">
-            {% trans "My uploads" %}
-        </a>
-    </div>
-</div>
+<h1 class="mb-3">{% trans "Fleet Leaderboard" %}</h1>
 
-<div class="btn-toolbar mb-3 gap-2" role="toolbar">
+<div class="btn-toolbar mb-3 gap-2 flex-wrap" role="toolbar">
     <div class="btn-group btn-group-sm" role="group">
         {% for key, text in ranges %}
         <a href="?range={{ key }}&sort={{ sort_key }}"
@@ -32,6 +22,7 @@
 <div class="card">
     <div class="card-body">
         {% if rows %}
+        <div class="pvet-table-scroll">
         <table class="table table-hover align-middle mb-0">
             <thead>
                 <tr>
@@ -82,10 +73,13 @@
                 {% endfor %}
             </tbody>
         </table>
+        </div>
         {% else %}
         <p class="text-body-secondary mb-0">
             {% trans "No uploads yet in this range." %}
+            {% if perms.pvetracker.basic_access %}
             <a href="{% url 'pvetracker:upload' %}">{% trans "Upload your first combat log" %}</a>.
+            {% endif %}
         </p>
         {% endif %}
     </div>

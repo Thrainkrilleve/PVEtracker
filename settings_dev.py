@@ -1,66 +1,117 @@
 # Minimal Django settings for running management commands / tests locally.
 # Not used in production — the Alliance Auth install has its own settings.
+#
+# The values below exist so `manage.py test` can boot Alliance Auth 5.6's
+# system checks. They are placeholders. Nothing here is a real credential,
+# and every URL is example.com.
 
-SECRET_KEY = 'dev-only-not-for-production'
+from celery import current_app
+
+SECRET_KEY = "dev-only-not-for-production"
 DEBUG = True
 
 INSTALLED_APPS = [
-    'django.contrib.contenttypes',
-    'django.contrib.auth',
-    'django.contrib.admin',
-    'django.contrib.messages',
-    'django.contrib.sessions',
-    'django.contrib.staticfiles',
-    'allianceauth',
-    'allianceauth.authentication',
-    'allianceauth.eveonline',
-    'allianceauth.services',
-    'allianceauth.framework',
-    'esi',
-    'aa_pvetracker',
+    "allianceauth",
+    "django.contrib.admin",
+    "django.contrib.auth",
+    "django.contrib.contenttypes",
+    "django.contrib.sessions",
+    "django.contrib.messages",
+    "django.contrib.staticfiles",
+    "django.contrib.humanize",
+    "django_celery_beat",
+    "solo",
+    "django_bootstrap5",
+    "sortedm2m",
+    "esi",
+    "allianceauth.framework",
+    "allianceauth.admin_status",
+    "allianceauth.authentication",
+    "allianceauth.services",
+    "allianceauth.eveonline",
+    "allianceauth.groupmanagement",
+    "allianceauth.notifications",
+    "allianceauth.thirdparty.navhelper",
+    "allianceauth.analytics",
+    "allianceauth.menu",
+    "allianceauth.theme",
+    "allianceauth.theme.darkly",
+    "allianceauth.theme.flatly",
+    "allianceauth.theme.materia",
+    "allianceauth.custom_css",
+    "allianceauth.crontab",
+    "sri",
+    "aa_pvetracker",
 ]
 
 MIDDLEWARE = [
-    'django.contrib.sessions.middleware.SessionMiddleware',
-    'django.contrib.auth.middleware.AuthenticationMiddleware',
-    'django.contrib.messages.middleware.MessageMiddleware',
-    'django.middleware.csrf.CsrfViewMiddleware',
+    "django.contrib.sessions.middleware.SessionMiddleware",
+    "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "django.contrib.messages.middleware.MessageMiddleware",
+    "django.middleware.csrf.CsrfViewMiddleware",
 ]
 
 DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': ':memory:',
+    "default": {
+        "ENGINE": "django.db.backends.sqlite3",
+        "NAME": ":memory:",
     }
 }
 
-DEFAULT_AUTO_FIELD = 'django.db.models.AutoField'
+DEFAULT_AUTO_FIELD = "django.db.models.AutoField"
 
 # allianceauth.authentication's task_statistics hook up a redis-backed event
 # counter at app-ready() time regardless of whether Celery is in use — point
 # it at a redis:// URL so django_redis can build a (lazy) client without
 # needing a real Redis server for `manage.py check` / `test` to work.
 CACHES = {
-    'default': {
-        'BACKEND': 'django_redis.cache.RedisCache',
-        'LOCATION': 'redis://localhost:6379/0',
+    "default": {
+        "BACKEND": "django_redis.cache.RedisCache",
+        "LOCATION": "redis://localhost:6379/0",
     }
 }
 
 TEMPLATES = [
     {
-        'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
-        'APP_DIRS': True,
-        'OPTIONS': {
-            'context_processors': [
-                'django.template.context_processors.request',
-                'django.contrib.auth.context_processors.auth',
-                'django.contrib.messages.context_processors.messages',
+        "BACKEND": "django.template.backends.django.DjangoTemplates",
+        "DIRS": [],
+        "APP_DIRS": True,
+        "OPTIONS": {
+            "context_processors": [
+                "django.template.context_processors.request",
+                "django.contrib.auth.context_processors.auth",
+                "django.contrib.messages.context_processors.messages",
+                "allianceauth.context_processors.auth_settings",
             ],
         },
     }
 ]
 
-STATIC_URL = '/static/'
-ROOT_URLCONF = 'urls_dev'
+STATIC_URL = "/static/"
+# Auth's base template hashes static files with django-sri, which asks the
+# storage for a filesystem path before it falls back to the app finders.
+STATIC_ROOT = "/tmp/pvetracker-static"
+ROOT_URLCONF = "urls_dev"
+
+SITE_NAME = "example"
+SITE_URL = "https://example.com"
+CSRF_TRUSTED_ORIGINS = ["https://example.com"]
+ALLOWED_HOSTS = ["*"]
+
+DEFAULT_THEME = "allianceauth.theme.flatly.auth_hooks.FlatlyThemeHook"
+LOGIN_TOKEN_SCOPES = ["publicData"]
+
+# Placeholder SSO settings so the esi system check can pass. Not real credentials.
+ESI_SSO_CLIENT_ID = "example-client-id"
+ESI_SSO_CLIENT_SECRET = "example-client-secret"
+ESI_SSO_CALLBACK_URL = "https://example.com/sso/callback"
+ESI_USER_CONTACT_EMAIL = "maintainer@example.com"
+
+# Alliance Auth's celery check reads the default Celery app, which is only
+# configured when a project's celery module is imported. Set the same values
+# the Auth project template sets, so `manage.py test` does not fail the check.
+current_app.conf.broker_connection_retry_on_startup = True
+current_app.conf.broker_transport_options = {
+    "priority_steps": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+    "queue_order_strategy": "priority",
+}

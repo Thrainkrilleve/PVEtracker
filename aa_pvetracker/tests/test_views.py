@@ -1,35 +1,38 @@
 """
-Django-backed tests — need a real Alliance Auth environment (Redis is
-required just to boot allianceauth.authentication's app config), so these
-are meant to run inside the Docker test instance:
+Django-backed tests. Redis has to be reachable (allianceauth.authentication
+counts task events in Redis at startup). With that, the dev harness is enough:
 
-    docker compose exec allianceauth_gunicorn python manage.py test pvetracker
+    python manage.py test pvetracker
 
-Covers the two things that are actually risky to get wrong in this app:
-ownership-gated upload attribution, and main/alt leaderboard roll-up.
+Covers ownership-gated upload attribution, main/alt leaderboard roll-up,
+who can view versus who can upload, and the session / events pages.
 """
 
 # Standard Library
 import hashlib
-from io import BytesIO
+from datetime import timedelta
+from decimal import Decimal
 
 # Django
-from django.contrib.auth.models import Permission, User
+from django.contrib.auth.models import AnonymousUser
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import TestCase
+from django.db import IntegrityError
+from django.test import RequestFactory, TestCase
 from django.urls import reverse
+from django.utils import timezone
 
 # Alliance Auth
 from allianceauth.authentication.models import CharacterOwnership
 from allianceauth.eveonline.models import EveCharacter
 from allianceauth.tests.auth_utils import AuthUtils
 
-from ..models import CombatLogUpload
+from ..models import CombatLogUpload, Payout, PilotSettings
+from ..views import pvetracker_dashboard
 
 SAMPLE_LOG = (
     "------------------------------------------------------------\n"
     "  Gamelog\n"
-    "  Listener: Thrain Krill\n"
+    "  Listener: Example Pilot\n"
     "  Session Started: 2026.09.14 22:27:51\n"
     "------------------------------------------------------------\n"
     "[ 2026.09.14 23:14:14 ] (combat) <color=0xff00ffff><b>1022</b> "
@@ -58,7 +61,7 @@ class UploadOwnershipTests(TestCase):
         self.client.force_login(self.user)
 
         self.character = EveCharacter.objects.create(
-            character_id=2120829300, character_name="Thrain Krill", corporation_id=2345,
+            character_id=1000000099, character_name="Example Pilot", corporation_id=2345,
         )
 
     def test_rejects_log_for_unowned_character(self):
@@ -98,15 +101,14 @@ class LeaderboardRollupTests(TestCase):
         AuthUtils.add_permissions_to_user_by_name(["pvetracker.basic_access"], self.user)
         self.client.force_login(self.user)
 
-        self.main = EveCharacter.objects.create(
-            character_id=1000000001, character_name="Main Character", corporation_id=2345,
+        self.main = AuthUtils.add_main_character_2(
+            self.user, "Main Character", 1000000001, corp_id=2345,
         )
         self.alt = EveCharacter.objects.create(
             character_id=1000000002, character_name="Alt Character", corporation_id=2345,
         )
         _own_character(self.user, self.main)
         _own_character(self.user, self.alt)
-        AuthUtils.add_main_character_2(self.user, "Main Character", 1000000001, corp_id=2345)
 
         for character, damage in [(self.main, 1000), (self.alt, 500)]:
             CombatLogUpload.objects.create(
@@ -125,3 +127,188 @@ class LeaderboardRollupTests(TestCase):
         self.assertEqual(rows[0]["label"], "Main Character")
         self.assertEqual(rows[0]["damage_out"], 1500)
         self.assertEqual(len(rows[0]["by_character"]), 2)
+
+    def test_seven_day_range_skips_older_uploads(self):
+        old = CombatLogUpload.objects.create(
+            character=self.main,
+            uploaded_by=self.user,
+            source_filename="old.txt",
+            file_hash="hash-old",
+            damage_out=9000,
+        )
+        CombatLogUpload.objects.filter(pk=old.pk).update(
+            uploaded_at=timezone.now() - timedelta(days=10)
+        )
+
+        week = self.client.get(reverse("pvetracker:leaderboard"), {"range": "7d"})
+        self.assertEqual(week.context["rows"][0]["damage_out"], 1500)
+        everything = self.client.get(reverse("pvetracker:leaderboard"), {"range": "all"})
+        self.assertEqual(everything.context["rows"][0]["damage_out"], 10500)
+
+    def test_unknown_sort_falls_back_to_damage_dealt(self):
+        response = self.client.get(
+            reverse("pvetracker:leaderboard"),
+            {"range": "all", "sort": "not-a-column"},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["sort_key"], "damage_out")
+
+
+class AccessAndSessionTests(TestCase):
+    def setUp(self):
+        self.owner = AuthUtils.create_user("owner")
+        AuthUtils.add_permissions_to_user_by_name(["pvetracker.basic_access"], self.owner)
+        self.viewer = AuthUtils.create_user("viewer")
+        self.character = AuthUtils.add_main_character_2(
+            self.owner, "Main Character", 1000000100, corp_id=2345,
+        )
+        _own_character(self.owner, self.character)
+        started = timezone.now() - timedelta(minutes=12)
+        self.upload = CombatLogUpload.objects.create(
+            character=self.character,
+            uploaded_by=self.owner,
+            source_filename="session.txt",
+            file_hash="hash-access",
+            damage_out=2500,
+            session_started=started,
+            session_ended=started + timedelta(minutes=12),
+            feed=[{
+                "ts": "00:01:00",
+                "kind": "damage_out",
+                "amount": 2500,
+                "party": "Example Target",
+                "quality": "Hits",
+            }],
+        )
+
+    def test_anonymous_leaderboard_redirects_to_login(self):
+        response = self.client.get(reverse("pvetracker:leaderboard"))
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("/accounts/login/", response.url)
+
+    def test_viewer_can_open_leaderboard_session_and_events(self):
+        self.client.force_login(self.viewer)
+        pages = (
+            ("pvetracker:leaderboard", {}),
+            ("pvetracker:session", {"pk": self.upload.pk}),
+            ("pvetracker:events", {}),
+        )
+        for name, kwargs in pages:
+            response = self.client.get(reverse(name, kwargs=kwargs))
+            self.assertEqual(response.status_code, 200, name)
+
+    def test_viewer_cannot_upload_or_open_my_uploads(self):
+        self.client.force_login(self.viewer)
+        for name in ("pvetracker:upload", "pvetracker:my_uploads"):
+            response = self.client.get(reverse(name))
+            self.assertEqual(response.status_code, 403, name)
+
+    def test_session_page_reuses_the_upload_dashboard(self):
+        self.client.force_login(self.viewer)
+        response = self.client.get(reverse("pvetracker:session", kwargs={"pk": self.upload.pk}))
+        self.assertContains(response, "Main Character")
+        self.assertContains(response, "2500")
+        self.assertContains(response, "Example Target")
+        self.assertContains(response, "00:12:00")
+        self.assertNotContains(response, reverse("pvetracker:delete_upload", kwargs={"pk": self.upload.pk}))
+
+    def test_my_uploads_links_to_the_session(self):
+        self.client.force_login(self.owner)
+        response = self.client.get(reverse("pvetracker:my_uploads"))
+        session_url = reverse("pvetracker:session", kwargs={"pk": self.upload.pk})
+        self.assertContains(response, session_url)
+        self.assertContains(response, "00:12:00")
+        self.assertContains(response, "30-day damage rank #1")
+
+    def test_nav_follows_the_upload_permission(self):
+        self.client.force_login(self.viewer)
+        hidden = self.client.get(reverse("pvetracker:leaderboard"))
+        self.assertContains(hidden, reverse("pvetracker:events"))
+        self.assertNotContains(hidden, reverse("pvetracker:upload"))
+
+        self.client.force_login(self.owner)
+        shown = self.client.get(reverse("pvetracker:leaderboard"))
+        self.assertContains(shown, reverse("pvetracker:upload"))
+        self.assertContains(shown, "My Uploads")
+
+    def test_owner_can_delete_and_viewer_cannot(self):
+        self.client.force_login(self.viewer)
+        denied = self.client.post(
+            reverse("pvetracker:delete_upload", kwargs={"pk": self.upload.pk})
+        )
+        self.assertEqual(denied.status_code, 403)
+        self.assertTrue(CombatLogUpload.objects.filter(pk=self.upload.pk).exists())
+
+        self.client.force_login(self.owner)
+        deleted = self.client.post(
+            reverse("pvetracker:delete_upload", kwargs={"pk": self.upload.pk})
+        )
+        self.assertRedirects(deleted, reverse("pvetracker:my_uploads"))
+        self.assertFalse(CombatLogUpload.objects.filter(pk=self.upload.pk).exists())
+
+    def test_hide_from_live_feed_drops_events_but_not_the_leaderboard(self):
+        self.client.force_login(self.viewer)
+        visible = self.client.get(reverse("pvetracker:events"))
+        self.assertContains(visible, "Example Target")
+
+        self.client.force_login(self.owner)
+        self.client.post(reverse("pvetracker:events"), {"hide_from_live_feed": "on"})
+        self.assertTrue(PilotSettings.objects.get(user=self.owner).hide_from_live_feed)
+
+        self.client.force_login(self.viewer)
+        hidden = self.client.get(reverse("pvetracker:events"))
+        self.assertNotContains(hidden, "Example Target")
+        board = self.client.get(reverse("pvetracker:leaderboard"), {"range": "all"})
+        self.assertEqual(board.context["rows"][0]["damage_out"], 2500)
+
+        self.client.force_login(self.owner)
+        self.client.post(reverse("pvetracker:events"), {})
+        self.assertFalse(PilotSettings.objects.get(user=self.owner).hide_from_live_feed)
+        self.client.force_login(self.viewer)
+        restored = self.client.get(reverse("pvetracker:events"))
+        self.assertContains(restored, "Example Target")
+
+    def test_dashboard_widget_shows_last_session_and_rank(self):
+        request = RequestFactory().get("/dashboard/")
+        request.user = self.owner
+        html = pvetracker_dashboard(request)
+        self.assertIn("Main Character", html)
+        self.assertIn("00:12:00", html)
+        self.assertIn("7-day damage rank #1", html)
+        self.assertIn(reverse("pvetracker:upload"), html)
+
+        request.user = self.viewer
+        empty = pvetracker_dashboard(request)
+        self.assertIn("No combat logs in the last 7 days.", empty)
+        self.assertNotIn(reverse("pvetracker:upload"), empty)
+
+        request.user = AnonymousUser()
+        self.assertEqual(pvetracker_dashboard(request), "")
+
+
+class PayoutStubTests(TestCase):
+    def test_payout_stores_only_the_allowed_fields(self):
+        names = {field.name for field in Payout._meta.fields}
+        self.assertEqual(
+            names,
+            {"id", "character", "occurred_at", "entry_type", "amount", "ref_id"},
+        )
+
+    def test_ship_type_id_starts_empty(self):
+        self.assertTrue(CombatLogUpload._meta.get_field("ship_type_id").null)
+
+    def test_ref_id_is_unique(self):
+        character = EveCharacter.objects.create(
+            character_id=1000000200, character_name="Payout Pilot", corporation_id=2345,
+        )
+        kwargs = {
+            "character": character,
+            "occurred_at": timezone.now(),
+            "entry_type": Payout.EntryType.BOUNTY,
+            "amount": Decimal("100.50"),
+            "ref_id": 424242,
+        }
+        Payout.objects.create(**kwargs)
+        with self.assertRaises(IntegrityError):
+            Payout.objects.create(**kwargs)
+

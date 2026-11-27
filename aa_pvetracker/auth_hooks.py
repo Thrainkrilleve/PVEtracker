@@ -12,7 +12,7 @@ from .views import pvetracker_dashboard
 
 
 class PvetrackerMenuItem(MenuItemHook):
-    """Sidebar menu entry — only visible to users with basic_access."""
+    """Sidebar menu entry. Any logged-in member can open the leaderboard."""
 
     def __init__(self):
         MenuItemHook.__init__(
@@ -24,7 +24,7 @@ class PvetrackerMenuItem(MenuItemHook):
         )
 
     def render(self, request) -> str:
-        if request.user.has_perm("pvetracker.basic_access"):
+        if request.user.is_authenticated:
             return MenuItemHook.render(self, request)
         return ""
 

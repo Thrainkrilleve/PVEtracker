@@ -3,8 +3,10 @@ PvE Tracker — fleet damage & logi tracking for Alliance Auth.
 
 Models
 ------
-General             Unmanaged meta-model that holds app-level permissions.
+General              Unmanaged meta-model that holds app-level permissions.
 CombatLogUpload      One parsed EVE Gamelog upload, aggregated per pilot per session.
+PilotSettings        Per-user live-feed visibility. Missing row means visible.
+Payout               One ESI wallet-journal payout line. Nothing writes this yet.
 """
 
 # Django
@@ -28,7 +30,9 @@ class General(models.Model):
         managed = False
         default_permissions = ()
         permissions = (
-            ("basic_access", "Can access PvE Tracker"),
+            # Viewing the leaderboard, sessions, and events is any logged-in
+            # member. This permission is the upload (and delete) gate.
+            ("basic_access", "Can upload PvE Tracker combat logs"),
         )
 
 
@@ -110,6 +114,16 @@ class CombatLogUpload(models.Model):
         help_text=_("Of the combat lines seen, how many matched a known event pattern."),
     )
 
+    ship_type_id = models.PositiveIntegerField(
+        _("ship type id"),
+        null=True,
+        blank=True,
+        help_text=_(
+            "Hull type id for this session, for a later SDE name lookup. "
+            "Empty until a source reports it."
+        ),
+    )
+
     class Meta:
         verbose_name = _("combat log upload")
         verbose_name_plural = _("combat log uploads")
@@ -136,3 +150,89 @@ class CombatLogUpload(models.Model):
     def duration_display(self) -> str:
         total = int(self.duration_seconds)
         return f"{total // 3600:02d}:{(total % 3600) // 60:02d}:{total % 60:02d}"
+
+
+# ---------------------------------------------------------------------------
+# Pilot settings
+# ---------------------------------------------------------------------------
+
+
+class PilotSettings(models.Model):
+    """
+    Per-user preferences.
+
+    One checkbox: hide this user's sessions from the events feed. The
+    leaderboard is unaffected, and a missing row means visible.
+    """
+
+    user = models.OneToOneField(
+        User,
+        on_delete=models.CASCADE,
+        related_name="pvetracker_settings",
+        verbose_name=_("user"),
+    )
+    hide_from_live_feed = models.BooleanField(
+        _("hide from the live feed"),
+        default=False,
+        help_text=_("Hide this user's sessions from the events feed. Leaderboard totals stay."),
+    )
+
+    class Meta:
+        verbose_name = _("pilot settings")
+        verbose_name_plural = _("pilot settings")
+
+    def __str__(self) -> str:
+        return f"{self.user} — hide_from_live_feed={self.hide_from_live_feed}"
+
+
+# ---------------------------------------------------------------------------
+# Payout (Phase 2 stub — no ingest yet)
+# ---------------------------------------------------------------------------
+
+
+class Payout(models.Model):
+    """
+    One kept ESI wallet-journal payout line.
+
+    Stored fields are only character, time, type, amount, and the journal id
+    used to dedupe. No raw journal body, balance, or tax line belongs here.
+    Nothing in this version writes rows; the table is reserved for later.
+    """
+
+    class EntryType(models.TextChoices):
+        BOUNTY = "bounty", _("Bounty")
+        BOUNTY_PRIZE = "bounty_prize", _("Bounty prize")
+        BOUNTY_PRIZES = "bounty_prizes", _("Bounty prizes")
+        ESS_ESCROW_TRANSFER = "ess_escrow_transfer", _("ESS escrow")
+        AGENT_MISSION_REWARD = "agent_mission_reward", _("Mission reward")
+        AGENT_MISSION_TIME_BONUS_REWARD = (
+            "agent_mission_time_bonus_reward",
+            _("Mission time bonus"),
+        )
+        MISSION_REWARD = "mission_reward", _("Mission reward")
+
+    character = models.ForeignKey(
+        EveCharacter,
+        on_delete=models.CASCADE,
+        related_name="pvetracker_payouts",
+        verbose_name=_("character"),
+    )
+    occurred_at = models.DateTimeField(_("time"))
+    entry_type = models.CharField(_("type"), max_length=64, choices=EntryType.choices)
+    amount = models.DecimalField(_("amount"), max_digits=20, decimal_places=2)
+    ref_id = models.BigIntegerField(
+        _("journal id"),
+        unique=True,
+        help_text=_("ESI wallet-journal id. Unique so the same line is not stored twice."),
+    )
+
+    class Meta:
+        verbose_name = _("payout")
+        verbose_name_plural = _("payouts")
+        ordering = ["-occurred_at"]
+        indexes = [
+            models.Index(fields=["character", "occurred_at"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.character_id} {self.entry_type} {self.amount} ({self.ref_id})"
