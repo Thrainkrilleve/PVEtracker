@@ -2,7 +2,8 @@
 Pilot Stats Views
 
 leaderboard      — fleet standings, rolled up to each user's main character
-upload           — drag-and-drop (or picker) upload of a combat log
+upload           — drag-and-drop (or picker) upload of a combat log; JSON for the scanner
+upload_characters— the user's character names, for the folder scanner's local filter
 session_detail   — the upload-result dashboard for one stored session
 my_uploads       — a user's own upload history, with delete
 delete_upload    — POST endpoint backing the delete button on my_uploads
@@ -12,19 +13,26 @@ events           — recent activity from stored sessions, plus the feed opt-out
 # Standard Library
 import hashlib
 import logging
+import time
+from dataclasses import dataclass
 from datetime import timezone as dt_timezone
+from typing import Optional
 
 # Django
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required, permission_required
+from django.core.cache import cache
 from django.db import IntegrityError, transaction
 from django.db.models import Count, Sum
 from django.db.models.functions import Coalesce
+from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
+from django.urls import reverse
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
+from .app_settings import SCANNER_RECENT_DAYS, SCANNER_UPLOADS_PER_MINUTE
 from .forms import LiveFeedOptOutForm, LogUploadForm
 from .leaderboard import DETAIL_FIELDS, leaderboard_rows, normalize_sort_key, rank_of, within_days
 from .models import CombatLogUpload, PilotSettings
@@ -98,32 +106,114 @@ def leaderboard(request):
 # ---------------------------------------------------------------------------
 
 
+@dataclass
+class UploadResult:
+    """Outcome of one Gamelog upload, shared by the HTML form and the scanner's JSON."""
+
+    code: str
+    level: int
+    message: str
+    session: Optional[CombatLogUpload] = None
+    new_lines: int = 0
+
+    def as_json(self) -> dict:
+        data = {"result": self.code, "message": str(self.message), "new_lines": self.new_lines}
+        if self.session is not None:
+            data["session_id"] = self.session.pk
+            data["session_url"] = reverse("pilotstats:session", kwargs={"pk": self.session.pk})
+            data["character"] = self.session.character.character_name
+        return data
+
+
+def _wants_json(request) -> bool:
+    return "application/json" in request.headers.get("Accept", "")
+
+
+def _throttled(user) -> int:
+    """Seconds to wait when *user* is over the scanner's per-minute upload cap, else 0."""
+    limit = SCANNER_UPLOADS_PER_MINUTE
+    if not limit:
+        return 0
+    now = int(time.time())
+    key = f"pilotstats:scanner-uploads:{user.pk}:{now // 60}"
+    cache.add(key, 0, timeout=120)
+    try:
+        count = cache.incr(key)
+    except ValueError:  # evicted between add and incr
+        cache.set(key, 1, timeout=120)
+        count = 1
+    return (60 - now % 60) if count > limit else 0
+
+
 @login_required
 @permission_required("pilotstats.basic_access", raise_exception=True)
 def upload(request):
+    """
+    Upload one Gamelog file.
+
+    The page's form posts here and gets the page back with a flash message.
+    The folder scanner and multi-file drop post the same field with
+    ``Accept: application/json`` and get an ``UploadResult`` as JSON.
+    """
+    json_mode = _wants_json(request)
     result = None
 
     if request.method == "POST":
+        if json_mode:
+            wait = _throttled(request.user)
+            if wait:
+                response = JsonResponse(
+                    {"result": "throttled", "message": str(_("Too many uploads; slowing down.")),
+                     "retry_after": wait},
+                    status=429,
+                )
+                response["Retry-After"] = str(wait)
+                return response
         form = LogUploadForm(request.POST, request.FILES)
         if form.is_valid():
-            result = _handle_upload(request, form.cleaned_data["log_file"])
+            outcome = _process_upload(request.user, form.cleaned_data["log_file"])
+            if json_mode:
+                return JsonResponse(outcome.as_json())
+            messages.add_message(request, outcome.level, outcome.message)
+            result = outcome.session if outcome.code in ("created", "updated") else None
+        elif json_mode:
+            return JsonResponse(
+                {"result": "invalid", "message": str(_("No log file in the request.")),
+                 "errors": form.errors.get_json_data()},
+                status=400,
+            )
     else:
         form = LogUploadForm()
 
-    return render(request, "pilotstats/upload.html", {"form": form, "result": result})
+    return render(request, "pilotstats/upload.html", {
+        "form": form,
+        "result": result,
+        "scanner_recent_days": SCANNER_RECENT_DAYS,
+    })
 
 
-def _handle_upload(request, uploaded_file):
+@login_required
+@permission_required("pilotstats.basic_access", raise_exception=True)
+def upload_characters(request):
+    """Names of the user's own characters, so the scanner only sends their logs."""
+    names = sorted(_owned_characters(request.user))
+    return JsonResponse({"characters": names})
+
+
+def _process_upload(user, uploaded_file) -> UploadResult:
     if uploaded_file.size > MAX_UPLOAD_BYTES:
-        messages.error(request, _("That file is larger than a real combat log should be — rejected."))
-        return None
+        return UploadResult(
+            "too_large", messages.ERROR,
+            _("That file is larger than a real combat log should be — rejected."),
+        )
 
     raw = uploaded_file.read()
     file_hash = hashlib.sha256(raw).hexdigest()
 
     if CombatLogUpload.objects.filter(file_hash=file_hash).exists():
-        messages.warning(request, _("This exact file has already been uploaded."))
-        return None
+        return UploadResult(
+            "duplicate", messages.WARNING, _("This exact file has already been uploaded."),
+        )
 
     text = raw.decode("utf-8", errors="replace")
     lines = text.splitlines(keepends=True)
@@ -131,33 +221,36 @@ def _handle_upload(request, uploaded_file):
     header = read_header_from_lines(lines)
     character_name = header.get("character")
     if not character_name:
-        messages.error(request, _("Couldn't find a 'Listener:' line — is this really a Gamelog file?"))
-        return None
+        return UploadResult(
+            "not_gamelog", messages.ERROR,
+            _("Couldn't find a 'Listener:' line — is this really a Gamelog file?"),
+        )
 
-    owned = _owned_characters(request.user)
+    owned = _owned_characters(user)
     character = owned.get(character_name)
     if character is None:
-        messages.error(
-            request,
+        return UploadResult(
+            "not_owned", messages.ERROR,
             _(
                 "This log belongs to '%(name)s', which isn't a character on your Alliance Auth "
                 "account. Make sure that character has been added (and its ownership verified) "
                 "before uploading its logs."
             ) % {"name": character_name},
         )
-        return None
 
     stats = ParseStats()
     events = list(iter_events_from_lines(lines, stats))
     if stats.combat_lines == 0:
-        messages.warning(request, _("No (combat) channel lines found in this file — nothing to record."))
-        return None
+        return UploadResult(
+            "no_combat", messages.WARNING,
+            _("No (combat) channel lines found in this file — nothing to record."),
+        )
 
     summary = summarize(events)
     log_started = _eve_time(parse_header_timestamp(header.get("session_started")))
 
     values = dict(
-        uploaded_by=request.user,
+        uploaded_by=user,
         session_started=_eve_time(summary["session_started"]),
         session_ended=_eve_time(summary["session_ended"]),
         source_filename=uploaded_file.name,
@@ -192,47 +285,49 @@ def _handle_upload(request, uploaded_file):
                 log_upload = CombatLogUpload.objects.create(
                     character=character, log_started=log_started, **values
                 )
-                messages.success(
-                    request,
+                return UploadResult(
+                    "created", messages.SUCCESS,
                     _("Uploaded and parsed — %(n)d combat lines scored.") % {"n": stats.matched},
+                    session=log_upload,
+                    new_lines=stats.combat_lines,
                 )
-                return log_upload
-            return _update_existing_session(request, existing, values)
+            return _update_existing_session(user, existing, values)
     except IntegrityError:
         # Two uploads of the same file (or the same log) raced each other; the
         # other one won. Same outcome as the duplicate checks above.
-        messages.warning(request, _("This log has already been uploaded."))
-        return None
+        return UploadResult(
+            "duplicate", messages.WARNING, _("This log has already been uploaded."),
+        )
 
 
-def _update_existing_session(request, existing, values):
+def _update_existing_session(user, existing, values) -> UploadResult:
     """
     A log the server already has a session for (same character and header
     start). The EVE client appends to one file for the whole client session,
     so a longer copy replaces the stored totals instead of being counted twice.
     """
-    if existing.uploaded_by_id != request.user.id:
-        messages.error(
-            request,
+    if existing.uploaded_by_id != user.id:
+        return UploadResult(
+            "other_account", messages.ERROR,
             _("Another Alliance Auth account already uploaded this character's log for that session."),
         )
-        return None
     if values["combat_lines"] <= existing.combat_lines:
-        messages.warning(
-            request,
+        return UploadResult(
+            "no_new_lines", messages.WARNING,
             _("This session is already stored, and this copy of the log has no new combat lines."),
+            session=existing,
         )
-        return None
 
     added = values["combat_lines"] - existing.combat_lines
     for field, value in values.items():
         setattr(existing, field, value)
     existing.save()
-    messages.success(
-        request,
+    return UploadResult(
+        "updated", messages.SUCCESS,
         _("Updated your existing session for this log — %(n)d new combat lines.") % {"n": added},
+        session=existing,
+        new_lines=added,
     )
-    return existing
 
 
 # ---------------------------------------------------------------------------
