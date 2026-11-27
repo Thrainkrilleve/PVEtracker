@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+Run `migrate` (adds `0002_esi_zkill_fleets`) and add the new beat tasks from the README.
+
+- **Wallet payouts (optional per pilot).**
+  - Pilots can connect a character's wallet (`esi-wallet.read_character_wallet.v1`). An hourly task stores bounty, ESS and mission payout lines, nothing else, and adds a **Payout ISK** column (with a per-type breakdown) to the leaderboard.
+  - Bounty ticks also give **rats killed** per NPC type.
+  - A "Don't read my wallet" checkbox on Events stops reading and deletes what was stored.
+- **zKillboard kills and losses** from the R2Z2 feed, every minute.
+  - New columns: Kills / Losses, ISK destroyed / lost, and killmail damage. Events lists recent kills and losses.
+  - Mails are kept for tracked corps and alliances (by default those of Member-state mains; editable in admin) and only for Auth characters.
+  - A mail with two alts of one main counts once.
+- **Fleet tracking (optional, fleet boss).**
+  - The boss presses "Track my fleet" (`esi-fleets.read_fleet.v1`). The roster, the hulls, and how many Auth pilots uploaded a combat log are recorded every minute.
+  - Sessions flown in a tracked fleet show their hull.
+- **Session page**: "Around this session" tiles show payouts, rats killed, kills and losses, and the hull for that character and time (±15 min). They sit beside the combat-log numbers and are never added into them.
+- Dashboard widget adds 7-day payouts and kills.
+- The leaderboard now has rows for pilots with payouts or kills but no uploaded log.
+- Hull and NPC names come from the `eve_sde` app when installed, otherwise from CCP's SDE over HTTP, cached locally. Pages never wait on it.
+- New dependencies: `django-esi>=9.0` (already required by Alliance Auth) and `requests`. Works with django-esi 9.x and 10.x; CI tests both.
+
 - **Gamelog folder scanning** on the Upload page.
   - In Chrome or Edge, pick the Gamelogs folder once. While the tab is open, new and grown logs upload every minute, and a growing log updates its session.
   - Other browsers can scan a folder once.

@@ -14,8 +14,8 @@ class LogUploadForm(forms.Form):
     )
 
 
-class LiveFeedOptOutForm(forms.Form):
-    """Single checkbox. Unchecked (the default) leaves the pilot on the events feed."""
+class PrivacyForm(forms.Form):
+    """Two checkboxes. Both unchecked (the default) is: visible on the feed, wallet read if allowed."""
 
     hide_from_live_feed = forms.BooleanField(
         required=False,
@@ -25,3 +25,16 @@ class LiveFeedOptOutForm(forms.Form):
         ),
         widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
     )
+    wallet_opt_out = forms.BooleanField(
+        required=False,
+        label=_("Don't read my wallet"),
+        help_text=_(
+            "Stops reading payouts even if you granted the wallet scope, and deletes the "
+            "payouts and rat counts already stored for your characters."
+        ),
+        widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
+    )
+
+
+# Kept for imports from before the wallet checkbox existed.
+LiveFeedOptOutForm = PrivacyForm

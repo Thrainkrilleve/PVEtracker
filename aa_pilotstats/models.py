@@ -187,10 +187,8 @@ class CombatLogUpload(models.Model):
 
 class PilotSettings(models.Model):
     """
-    Per-user preferences.
-
-    One checkbox: hide this user's sessions from the events feed. The
-    leaderboard is unaffected, and a missing row means visible.
+    Per-user preferences. A missing row means the defaults (visible, wallet
+    read when a token allows it).
     """
 
     user = models.OneToOneField(
@@ -204,6 +202,14 @@ class PilotSettings(models.Model):
         default=False,
         help_text=_("Hide this user's sessions from the events feed. Leaderboard totals stay."),
     )
+    wallet_opt_out = models.BooleanField(
+        _("don't read my wallet"),
+        default=False,
+        help_text=_(
+            "Never read this user's wallet journal, even with a token that allows it. "
+            "Turning it on also deletes the payouts and rat counts already stored."
+        ),
+    )
 
     class Meta:
         verbose_name = _("pilot settings")
@@ -214,17 +220,20 @@ class PilotSettings(models.Model):
 
 
 # ---------------------------------------------------------------------------
-# Payout (Phase 2 stub — no ingest yet)
+# Wallet payouts (ESI wallet journal)
 # ---------------------------------------------------------------------------
 
 
 class Payout(models.Model):
     """
-    One kept ESI wallet-journal payout line.
+    One kept ESI wallet-journal payout line, kept for
+    PILOTSTATS_PAYOUT_RETENTION_DAYS (just past the journal's 30-day window,
+    so the journal id still dedupes). Long-term totals live in PayoutDaily.
 
-    Stored fields are only character, time, type, amount, and the journal id
-    used to dedupe. No raw journal body, balance, or tax line belongs here.
-    Nothing in this version writes rows; the table is reserved for later.
+    Stored: character, time, type, amount, the journal id, and for
+    ``bounty_prizes`` lines the NPC kill counts derived from the line's
+    reason. Never stored: the raw reason or description, balance, tax, the
+    other party, or any non-payout or ``*_tax`` line.
     """
 
     class EntryType(models.TextChoices):
@@ -253,6 +262,12 @@ class Payout(models.Model):
         unique=True,
         help_text=_("ESI wallet-journal id. Unique so the same line is not stored twice."),
     )
+    npc_kills = models.JSONField(
+        _("NPC kills"),
+        default=dict,
+        blank=True,
+        help_text=_("For bounty_prizes lines: {npc type id: count}, derived from the line."),
+    )
 
     class Meta:
         verbose_name = _("payout")
@@ -265,3 +280,234 @@ class Payout(models.Model):
 
     def __str__(self) -> str:
         return f"{self.character_id} {self.entry_type} {self.amount} ({self.ref_id})"
+
+
+class PayoutDaily(models.Model):
+    """Per character, day (UTC) and payout type: the long-lived ISK total."""
+
+    character = models.ForeignKey(
+        EveCharacter, on_delete=models.CASCADE, related_name="pilotstats_payout_days",
+    )
+    day = models.DateField()
+    entry_type = models.CharField(max_length=64, choices=Payout.EntryType.choices)
+    amount = models.DecimalField(max_digits=22, decimal_places=2, default=0)
+
+    class Meta:
+        verbose_name = _("daily payout total")
+        verbose_name_plural = _("daily payout totals")
+        constraints = [
+            models.UniqueConstraint(
+                fields=["character", "day", "entry_type"], name="pilotstats_payoutdaily_unique",
+            ),
+        ]
+        indexes = [models.Index(fields=["day"], name="pilotstats_payoutdaily_day")]
+
+    def __str__(self) -> str:
+        return f"{self.character_id} {self.day} {self.entry_type} {self.amount}"
+
+
+class NpcKillDaily(models.Model):
+    """Per character, day (UTC) and NPC type: rats killed, from bounty ticks."""
+
+    character = models.ForeignKey(
+        EveCharacter, on_delete=models.CASCADE, related_name="pilotstats_npc_kill_days",
+    )
+    day = models.DateField()
+    npc_type_id = models.PositiveIntegerField()
+    count = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        verbose_name = _("daily NPC kills")
+        verbose_name_plural = _("daily NPC kills")
+        constraints = [
+            models.UniqueConstraint(
+                fields=["character", "day", "npc_type_id"], name="pilotstats_npckilldaily_unique",
+            ),
+        ]
+        indexes = [models.Index(fields=["day"], name="pilotstats_npckilldaily_day")]
+
+    def __str__(self) -> str:
+        return f"{self.character_id} {self.day} {self.npc_type_id} x{self.count}"
+
+
+# ---------------------------------------------------------------------------
+# Killmails (zKillboard R2Z2)
+# ---------------------------------------------------------------------------
+
+
+class Killmail(models.Model):
+    """A killmail involving at least one tracked character. Only the fields shown are kept."""
+
+    killmail_id = models.BigIntegerField(unique=True)
+    killmail_hash = models.CharField(max_length=64)
+    killmail_time = models.DateTimeField(db_index=True)
+    solar_system_id = models.PositiveIntegerField(null=True, blank=True)
+    victim_ship_type_id = models.PositiveIntegerField(null=True, blank=True)
+    total_value = models.DecimalField(max_digits=22, decimal_places=2, default=0)
+    npc = models.BooleanField(default=False, help_text=_("zKill: killed by NPCs only."))
+    solo = models.BooleanField(default=False)
+
+    class Meta:
+        verbose_name = _("killmail")
+        verbose_name_plural = _("killmails")
+        ordering = ["-killmail_time"]
+
+    def __str__(self) -> str:
+        return f"Killmail {self.killmail_id}"
+
+    @property
+    def zkill_url(self) -> str:
+        return f"https://zkillboard.com/kill/{self.killmail_id}/"
+
+
+class KillmailParticipant(models.Model):
+    """One Auth character on a killmail, as victim or attacker."""
+
+    killmail = models.ForeignKey(Killmail, on_delete=models.CASCADE, related_name="participants")
+    character = models.ForeignKey(
+        EveCharacter, on_delete=models.CASCADE, related_name="pilotstats_killmail_entries",
+    )
+    is_victim = models.BooleanField(default=False)
+    final_blow = models.BooleanField(default=False)
+    damage = models.PositiveIntegerField(
+        default=0, help_text=_("damage_done for an attacker, damage_taken for the victim."),
+    )
+    ship_type_id = models.PositiveIntegerField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = _("killmail participant")
+        verbose_name_plural = _("killmail participants")
+        constraints = [
+            models.UniqueConstraint(
+                fields=["killmail", "character", "is_victim"],
+                name="pilotstats_kmparticipant_unique",
+            ),
+        ]
+
+
+class TrackedEntity(models.Model):
+    """A corporation or alliance whose killmails are kept from the zKill feed."""
+
+    class Kind(models.TextChoices):
+        CORPORATION = "corporation", _("Corporation")
+        ALLIANCE = "alliance", _("Alliance")
+
+    class Source(models.TextChoices):
+        AUTO = "auto", _("Automatic (Member-state mains)")
+        MANUAL = "manual", _("Added by an admin")
+
+    kind = models.CharField(max_length=16, choices=Kind.choices)
+    entity_id = models.BigIntegerField()
+    name = models.CharField(max_length=255, blank=True)
+    source = models.CharField(max_length=16, choices=Source.choices, default=Source.MANUAL)
+    enabled = models.BooleanField(
+        default=True,
+        help_text=_("Untick to stop keeping this entity's mails. Automatic rows stay unticked."),
+    )
+
+    class Meta:
+        verbose_name = _("tracked corporation or alliance")
+        verbose_name_plural = _("tracked corporations and alliances")
+        constraints = [
+            models.UniqueConstraint(fields=["kind", "entity_id"], name="pilotstats_trackedentity_unique"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.get_kind_display()} {self.name or self.entity_id}"
+
+
+class R2Z2State(models.Model):
+    """Where the zKill R2Z2 reader is in the sequence. One row."""
+
+    last_sequence = models.BigIntegerField(null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = _("zKill feed position")
+        verbose_name_plural = _("zKill feed position")
+
+    def __str__(self) -> str:
+        return f"R2Z2 sequence {self.last_sequence}"
+
+    @classmethod
+    def get(cls) -> "R2Z2State":
+        obj, _created = cls.objects.get_or_create(pk=1)
+        return obj
+
+
+# ---------------------------------------------------------------------------
+# Fleets (ESI, fleet boss token)
+# ---------------------------------------------------------------------------
+
+
+class TrackedFleet(models.Model):
+    """An in-game fleet whose roster is polled with its boss's token."""
+
+    fleet_id = models.BigIntegerField()
+    boss = models.ForeignKey(
+        EveCharacter, on_delete=models.CASCADE, related_name="pilotstats_bossed_fleets",
+    )
+    started_by = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="pilotstats_tracked_fleets",
+    )
+    started_at = models.DateTimeField(auto_now_add=True)
+    ended_at = models.DateTimeField(null=True, blank=True)
+    end_reason = models.CharField(max_length=255, blank=True)
+    last_polled_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = _("tracked fleet")
+        verbose_name_plural = _("tracked fleets")
+        ordering = ["-started_at"]
+
+    def __str__(self) -> str:
+        return f"Fleet {self.fleet_id} ({self.boss.character_name})"
+
+    @property
+    def is_open(self) -> bool:
+        return self.ended_at is None
+
+
+class FleetMember(models.Model):
+    """One pilot in one hull in a tracked fleet. A hull swap starts a new row."""
+
+    fleet = models.ForeignKey(TrackedFleet, on_delete=models.CASCADE, related_name="members")
+    eve_character_id = models.BigIntegerField(help_text=_("EVE character id"))
+    character = models.ForeignKey(
+        EveCharacter, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="pilotstats_fleet_entries",
+        help_text=_("Set when the pilot is on Auth."),
+    )
+    ship_type_id = models.PositiveIntegerField()
+    first_seen = models.DateTimeField()
+    last_seen = models.DateTimeField()
+
+    class Meta:
+        verbose_name = _("fleet member")
+        verbose_name_plural = _("fleet members")
+        constraints = [
+            models.UniqueConstraint(
+                fields=["fleet", "eve_character_id", "ship_type_id"], name="pilotstats_fleetmember_unique",
+            ),
+        ]
+
+
+# ---------------------------------------------------------------------------
+# Type names (hulls, NPCs)
+# ---------------------------------------------------------------------------
+
+
+class TypeName(models.Model):
+    """Cached EVE type name and group, for the hulls and NPCs this app shows."""
+
+    type_id = models.PositiveIntegerField(primary_key=True)
+    name = models.CharField(max_length=255)
+    group_name = models.CharField(max_length=255, blank=True)
+    fetched_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = _("type name")
+        verbose_name_plural = _("type names")
+
+    def __str__(self) -> str:
+        return f"{self.name} ({self.type_id})"
