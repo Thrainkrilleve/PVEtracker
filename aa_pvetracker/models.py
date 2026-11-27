@@ -67,6 +67,16 @@ class CombatLogUpload(models.Model):
 
     session_started = models.DateTimeField(_("session started"), null=True, blank=True)
     session_ended = models.DateTimeField(_("session ended"), null=True, blank=True)
+    log_started = models.DateTimeField(
+        _("log started"),
+        null=True,
+        blank=True,
+        help_text=_(
+            "The Gamelog header's 'Session Started:' time (UTC). With the character, "
+            "this identifies one client log, so re-uploading a log that has grown "
+            "updates the same session instead of adding a second one."
+        ),
+    )
 
     source_filename = models.CharField(_("source filename"), max_length=255)
     file_hash = models.CharField(
@@ -128,6 +138,17 @@ class CombatLogUpload(models.Model):
         verbose_name = _("combat log upload")
         verbose_name_plural = _("combat log uploads")
         ordering = ["-uploaded_at"]
+        constraints = [
+            # Rows from before this field existed have no log_started; NULLs
+            # don't collide in a unique constraint, so they're unaffected.
+            models.UniqueConstraint(
+                fields=["character", "log_started"],
+                name="pvetracker_unique_character_log",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["session_started"], name="pvetracker_session_started"),
+        ]
 
     def __str__(self) -> str:
         return f"{self.character.character_name} — {self.source_filename} ({self.uploaded_at:%Y-%m-%d %H:%M})"

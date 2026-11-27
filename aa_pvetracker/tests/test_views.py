@@ -10,14 +10,18 @@ who can view versus who can upload, and the session / events pages.
 
 # Standard Library
 import hashlib
-from datetime import timedelta
+from datetime import datetime, timedelta
+from datetime import timezone as dt_timezone
 from decimal import Decimal
+from unittest import mock
 
 # Django
+from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
+from django.shortcuts import resolve_url
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import IntegrityError
-from django.test import RequestFactory, TestCase
+from django.test import RequestFactory, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
@@ -44,6 +48,14 @@ SAMPLE_LOG = (
 )
 
 
+# The same client log after the pilot kept shooting: one more combat line.
+GROWN_LOG = SAMPLE_LOG + (
+    "[ 2026.09.14 23:20:00 ] (combat) <color=0xff00ffff><b>500</b> "
+    "<color=0x77ffffff><font size=10>to</font> <b><color=0xffffffff>Bewildering Lathe</b>"
+    "<font size=10><color=0x77ffffff> - Mega Pulse Laser II - Hits\n"
+)
+
+
 def _own_character(user, character):
     CharacterOwnership.objects.create(
         character=character, user=user, owner_hash=f"hash-{character.character_id}"
@@ -60,8 +72,11 @@ class UploadOwnershipTests(TestCase):
         AuthUtils.add_permissions_to_user_by_name(["pvetracker.basic_access"], self.user)
         self.client.force_login(self.user)
 
-        self.character = EveCharacter.objects.create(
-            character_id=1000000099, character_name="Example Pilot", corporation_id=2345,
+        # Auth's url hook sends users with no main to the main-character page,
+        # so every logged-in test user needs one. Making it the main does not
+        # create a CharacterOwnership; the tests below add that explicitly.
+        self.character = AuthUtils.add_main_character_2(
+            self.user, "Example Pilot", 1000000099, corp_id=2345,
         )
 
     def test_rejects_log_for_unowned_character(self):
@@ -90,6 +105,73 @@ class UploadOwnershipTests(TestCase):
         self.client.post(reverse("pvetracker:upload"), {"log_file": _upload_file()})
         self.client.post(reverse("pvetracker:upload"), {"log_file": _upload_file(name="thrain2.txt")})
         self.assertEqual(CombatLogUpload.objects.count(), 1)
+
+    def test_grown_log_updates_the_same_session(self):
+        _own_character(self.user, self.character)
+        self.client.post(reverse("pvetracker:upload"), {"log_file": _upload_file()})
+        first = CombatLogUpload.objects.get()
+
+        response = self.client.post(
+            reverse("pvetracker:upload"), {"log_file": _upload_file(content=GROWN_LOG)}
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(CombatLogUpload.objects.count(), 1)
+        updated = CombatLogUpload.objects.get()
+        self.assertEqual(updated.pk, first.pk)
+        self.assertEqual(updated.damage_out, 1522)  # not 1022 + 1522
+        self.assertEqual(updated.combat_lines, 3)
+        self.assertEqual(updated.file_hash, hashlib.sha256(GROWN_LOG.encode("utf-8")).hexdigest())
+        self.assertEqual(updated.log_started, datetime(2026, 9, 14, 22, 27, 51, tzinfo=dt_timezone.utc))
+        self.assertContains(response, "1 new combat lines")
+
+    def test_older_copy_of_a_stored_log_is_rejected(self):
+        _own_character(self.user, self.character)
+        self.client.post(reverse("pvetracker:upload"), {"log_file": _upload_file(content=GROWN_LOG)})
+        response = self.client.post(reverse("pvetracker:upload"), {"log_file": _upload_file()})
+        self.assertContains(response, "no new combat lines")
+        self.assertEqual(CombatLogUpload.objects.get().damage_out, 1522)
+
+    def test_session_owned_by_another_account_is_not_overwritten(self):
+        _own_character(self.user, self.character)
+        self.client.post(reverse("pvetracker:upload"), {"log_file": _upload_file()})
+
+        # The character has since moved to a different Auth account.
+        CharacterOwnership.objects.filter(character=self.character).delete()
+        other = AuthUtils.create_user("new_owner")
+        AuthUtils.add_main_character_2(other, "Other Main", 1000000098, corp_id=2345)
+        AuthUtils.add_permissions_to_user_by_name(["pvetracker.basic_access"], other)
+        _own_character(other, self.character)
+        self.client.force_login(other)
+
+        response = self.client.post(
+            reverse("pvetracker:upload"), {"log_file": _upload_file(content=GROWN_LOG)}
+        )
+        self.assertContains(response, "Another Alliance Auth account already uploaded")
+        stored = CombatLogUpload.objects.get()
+        self.assertEqual(stored.uploaded_by, self.user)
+        self.assertEqual(stored.damage_out, 1022)
+
+    @override_settings(TIME_ZONE="America/Denver")
+    def test_log_times_are_stored_as_utc(self):
+        _own_character(self.user, self.character)
+        self.client.post(reverse("pvetracker:upload"), {"log_file": _upload_file()})
+        upload = CombatLogUpload.objects.get()
+        self.assertEqual(
+            upload.session_started, datetime(2026, 9, 14, 23, 14, 14, tzinfo=dt_timezone.utc)
+        )
+        self.assertEqual(
+            upload.session_ended, datetime(2026, 9, 14, 23, 16, 53, tzinfo=dt_timezone.utc)
+        )
+
+    def test_racing_duplicate_shows_a_warning_not_an_error(self):
+        _own_character(self.user, self.character)
+        with mock.patch.object(
+            CombatLogUpload.objects, "create", side_effect=IntegrityError("duplicate key")
+        ):
+            response = self.client.post(reverse("pvetracker:upload"), {"log_file": _upload_file()})
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "already been uploaded")
+        self.assertEqual(CombatLogUpload.objects.count(), 0)
 
 
 class LeaderboardRollupTests(TestCase):
@@ -145,6 +227,24 @@ class LeaderboardRollupTests(TestCase):
         everything = self.client.get(reverse("pvetracker:leaderboard"), {"range": "all"})
         self.assertEqual(everything.context["rows"][0]["damage_out"], 10500)
 
+    def test_window_uses_fight_time_not_upload_time(self):
+        # Uploaded just now, but flown 40 days ago.
+        flown = timezone.now() - timedelta(days=40)
+        CombatLogUpload.objects.create(
+            character=self.main,
+            uploaded_by=self.user,
+            source_filename="backlog.txt",
+            file_hash="hash-backlog",
+            damage_out=7000,
+            session_started=flown,
+            session_ended=flown + timedelta(minutes=30),
+        )
+        for range_key in ("7d", "30d"):
+            response = self.client.get(reverse("pvetracker:leaderboard"), {"range": range_key})
+            self.assertEqual(response.context["rows"][0]["damage_out"], 1500, range_key)
+        everything = self.client.get(reverse("pvetracker:leaderboard"), {"range": "all"})
+        self.assertEqual(everything.context["rows"][0]["damage_out"], 8500)
+
     def test_unknown_sort_falls_back_to_damage_dealt(self):
         response = self.client.get(
             reverse("pvetracker:leaderboard"),
@@ -159,6 +259,9 @@ class AccessAndSessionTests(TestCase):
         self.owner = AuthUtils.create_user("owner")
         AuthUtils.add_permissions_to_user_by_name(["pvetracker.basic_access"], self.owner)
         self.viewer = AuthUtils.create_user("viewer")
+        # A plain member: has a main (Auth requires one to open app pages) but
+        # no basic_access.
+        AuthUtils.add_main_character_2(self.viewer, "Viewer Main", 1000000101, corp_id=2345)
         self.character = AuthUtils.add_main_character_2(
             self.owner, "Main Character", 1000000100, corp_id=2345,
         )
@@ -184,7 +287,15 @@ class AccessAndSessionTests(TestCase):
     def test_anonymous_leaderboard_redirects_to_login(self):
         response = self.client.get(reverse("pvetracker:leaderboard"))
         self.assertEqual(response.status_code, 302)
-        self.assertIn("/accounts/login/", response.url)
+        # Sites can move the login page, so compare with the configured URL.
+        self.assertTrue(response.url.startswith(resolve_url(settings.LOGIN_URL)), response.url)
+
+    def test_member_without_a_main_is_sent_to_pick_one(self):
+        # Same as every other Auth app page: the url hook requires a main.
+        no_main = AuthUtils.create_user("no_main")
+        self.client.force_login(no_main)
+        response = self.client.get(reverse("pvetracker:leaderboard"))
+        self.assertEqual(response.status_code, 302)
 
     def test_viewer_can_open_leaderboard_session_and_events(self):
         self.client.force_login(self.viewer)
@@ -270,6 +381,36 @@ class AccessAndSessionTests(TestCase):
         self.client.force_login(self.viewer)
         restored = self.client.get(reverse("pvetracker:events"))
         self.assertContains(restored, "Example Target")
+
+    def test_events_are_ordered_by_fight_time_and_show_the_date(self):
+        # Uploaded after self.upload, but its lines are from an earlier day.
+        flown = timezone.now() - timedelta(days=3)
+        CombatLogUpload.objects.create(
+            character=self.character,
+            uploaded_by=self.owner,
+            source_filename="older.txt",
+            file_hash="hash-older",
+            session_started=flown,
+            session_ended=flown + timedelta(minutes=5),
+            feed=[{
+                "date": "2026-09-01",
+                "ts": "23:59:59",
+                "kind": "damage_out",
+                "amount": 10,
+                "party": "Earlier Target",
+                "quality": "Hits",
+            }],
+        )
+        self.client.force_login(self.viewer)
+        response = self.client.get(reverse("pvetracker:events"))
+        parties = [row["party"] for row in response.context["feed_rows"]]
+        self.assertEqual(parties, ["Example Target", "Earlier Target"])
+        self.assertContains(response, "09-01 23:59:59")
+        # A row stored before feed lines carried a date falls back to the session's.
+        self.assertEqual(
+            response.context["feed_rows"][0]["date"],
+            self.upload.session_started.astimezone(dt_timezone.utc).strftime("%Y-%m-%d"),
+        )
 
     def test_dashboard_widget_shows_last_session_and_rank(self):
         request = RequestFactory().get("/dashboard/")

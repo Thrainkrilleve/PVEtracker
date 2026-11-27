@@ -9,7 +9,11 @@
         {% endif %}
     </div>
     {% endif %}
+    {% if show_date and item.date %}
+    <div class="pvet-feed-ts with-date" title="{{ item.date }} {{ item.ts }} EVE">{{ item.date|slice:"5:" }} {{ item.ts }}</div>
+    {% else %}
     <div class="pvet-feed-ts">{{ item.ts }}</div>
+    {% endif %}
     {% if item.kind == "damage_out" %}
     <div class="pvet-feed-amt">{{ item.amount }}</div>
     <div>{% trans "to" %} {{ item.party }} — {{ item.quality }}</div>

@@ -8,8 +8,15 @@ from — see the module docstring in parsing.py.
 
 # Standard Library
 import unittest
+from datetime import datetime
 
-from aa_pvetracker.parsing import ParseStats, iter_events_from_lines, read_header_from_lines, summarize
+from aa_pvetracker.parsing import (
+    ParseStats,
+    iter_events_from_lines,
+    parse_header_timestamp,
+    read_header_from_lines,
+    summarize,
+)
 
 HEADER = [
     "------------------------------------------------------------\n",
@@ -53,6 +60,25 @@ REMOTE_REP_OUT = (
     "<color=0x77ffffff><font size=10> - Large Coaxial Compact Remote Armor Repairer</font>\n"
 )
 NON_COMBAT = "[ 2026.09.14 22:52:03 ] (notify) Starting clone jumping\n"
+# Faction / deadspace rep modules carry an unspaced hyphen ("A-Type").
+REMOTE_REP_IN_FACTION = (
+    "[ 2026.09.09 00:22:10 ] (combat) <color=0xffccff66><b>612</b>"
+    "<color=0x77ffffff><font size=10> remote armor repaired by </font>"
+    '<b><color=0xffffffff>Example Logi [ABC-D]<XYZ> - Guardian "Guardian"</b>'
+    "<color=0x77ffffff><font size=10> - Centum A-Type Large Remote Armor Repairer</font>\n"
+)
+REMOTE_REP_OUT_FACTION = (
+    "[ 2026.09.09 00:22:12 ] (combat) <color=0xffccff66><b>700</b>"
+    "<color=0x77ffffff><font size=10> remote shield boosted to </font>"
+    '<b><color=0xffffffff>Example Fleetmate [ABC-D]<XYZ> - Basilisk "Logi"</b>'
+    "<color=0x77ffffff><font size=10> - Gist X-Type Large Remote Shield Booster</font>\n"
+)
+# A player attacker carries the weapon between the name and the hit quality.
+DAMAGE_IN_PLAYER = (
+    "[ 2026.09.14 23:18:00 ] (combat) <color=0xffcc0000><b>850</b> "
+    "<color=0x77ffffff><font size=10>from</font> <b><color=0xffffffff>Example Hostile[ABC](Vargur)</b>"
+    "<font size=10><color=0x77ffffff> - 800mm Repeating Cannon II - Hits\n"
+)
 
 
 class ReadHeaderTests(unittest.TestCase):
@@ -111,11 +137,53 @@ class ParseLineTests(unittest.TestCase):
         self.assertEqual(e.amount, 500)
         self.assertIn("Some Fleetmate", e.other_party)
 
+    def test_remote_rep_in_with_hyphenated_module(self):
+        e = list(iter_events_from_lines([REMOTE_REP_IN_FACTION]))[0]
+        self.assertEqual(e.kind, "remote_rep_in")
+        self.assertEqual(e.amount, 612)
+        self.assertEqual(e.other_party, 'Example Logi [ABC-D]<XYZ> - Guardian "Guardian"')
+        self.assertEqual(e.weapon, "Centum A-Type Large Remote Armor Repairer")
+
+    def test_remote_rep_out_with_hyphenated_module(self):
+        e = list(iter_events_from_lines([REMOTE_REP_OUT_FACTION]))[0]
+        self.assertEqual(e.kind, "remote_rep_out")
+        self.assertEqual(e.amount, 700)
+        self.assertEqual(e.weapon, "Gist X-Type Large Remote Shield Booster")
+
+    def test_remote_rep_module_is_last_segment(self):
+        e = list(iter_events_from_lines([REMOTE_REP_IN]))[0]
+        self.assertEqual(e.weapon, "Large Coaxial Compact Remote Armor Repairer")
+        self.assertTrue(e.other_party.endswith('Guardian "Guardian"'))
+
+    def test_damage_in_from_player_keeps_weapon_out_of_attacker(self):
+        e = list(iter_events_from_lines([DAMAGE_IN_PLAYER]))[0]
+        self.assertEqual(e.kind, "damage_in")
+        self.assertEqual(e.amount, 850)
+        self.assertEqual(e.other_party, "Example Hostile[ABC](Vargur)")
+        self.assertEqual(e.weapon, "800mm Repeating Cannon II")
+        self.assertEqual(e.quality, "Hits")
+
+    def test_damage_in_from_npc_has_no_weapon(self):
+        e = list(iter_events_from_lines([DAMAGE_IN]))[0]
+        self.assertEqual(e.other_party, "Alienator Crusher")
+        self.assertEqual(e.weapon, "")
+
     def test_non_combat_line_is_ignored(self):
         stats = ParseStats()
         events = list(iter_events_from_lines([NON_COMBAT], stats))
         self.assertEqual(stats.combat_lines, 0)
         self.assertEqual(events, [])
+
+
+class HeaderTimestampTests(unittest.TestCase):
+    def test_parses_session_started(self):
+        self.assertEqual(
+            parse_header_timestamp("2026.09.14 22:27:51"), datetime(2026, 9, 14, 22, 27, 51)
+        )
+
+    def test_unreadable_value_is_none(self):
+        self.assertIsNone(parse_header_timestamp(None))
+        self.assertIsNone(parse_header_timestamp("not a date"))
 
 
 class SummarizeTests(unittest.TestCase):
@@ -143,6 +211,16 @@ class SummarizeTests(unittest.TestCase):
         events = list(iter_events_from_lines(lines))
         summary = summarize(events)
         self.assertEqual(len(summary["feed"]), 60)
+
+    def test_feed_rows_carry_the_date(self):
+        summary = summarize(list(iter_events_from_lines([DAMAGE_OUT])))
+        self.assertEqual(summary["feed"][0]["date"], "2026-09-14")
+        self.assertEqual(summary["feed"][0]["ts"], "23:14:14")
+
+    def test_player_attacker_rolls_up_across_weapons(self):
+        second = DAMAGE_IN_PLAYER.replace("800mm Repeating Cannon II", "Large Vorton Projector II")
+        summary = summarize(list(iter_events_from_lines([DAMAGE_IN_PLAYER, second])))
+        self.assertEqual(summary["top_attackers"], [["Example Hostile[ABC](Vargur)", 1700]])
 
 
 if __name__ == "__main__":

@@ -23,7 +23,7 @@
     <div class="pvet-panel-title text-body-secondary">{% trans "Recent Activity" %}</div>
     <div class="pvet-feed">
         {% for item in feed_rows %}
-        {% include "pvetracker/includes/feed_line.html" %}
+        {% include "pvetracker/includes/feed_line.html" with show_date=True %}
         {% empty %}
         <p class="text-body-secondary mb-0">
             {% trans "No combat events yet. They show up here after a log is uploaded." %}

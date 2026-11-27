@@ -21,6 +21,37 @@ SUM_FIELDS = (
 # "all" is the absence of a cutoff, not a day count.
 RANGE_DAYS = {"7d": 7, "30d": 30}
 
+# Per-session JSON breakdowns. Roll-ups never read them, so list queries
+# defer them rather than pull every session's feed and charts into memory.
+DETAIL_FIELDS = (
+    "quality_out",
+    "quality_in",
+    "top_targets",
+    "top_attackers",
+    "reps_by_healer",
+    "reps_by_recipient",
+    "feed",
+)
+
+
+def within_days(qs, days, now=None):
+    """
+    Keep sessions that were *flown* in the last ``days`` days.
+
+    The fight time is the log's first combat line (``session_started``).
+    Rows without one fall back to the upload time, so an old log uploaded
+    today doesn't count as this week's work.
+    """
+    # Django
+    from django.db.models.functions import Coalesce
+    from django.utils import timezone
+
+    if now is None:
+        now = timezone.now()
+    return qs.annotate(
+        flown_at=Coalesce("session_started", "uploaded_at"),
+    ).filter(flown_at__gte=now - timedelta(days=days))
+
 
 def user_main(user):
     """Designated main character, or None when the user has no profile or no main."""
@@ -121,23 +152,19 @@ def leaderboard_rows(range_key="30d", sort_key="damage_out", *, sum_fields=SUM_F
     Roll up stored combat-log sessions.
 
     ``range_key`` is ``"7d"``, ``"30d"``, or anything else (treated as all time,
-    matching the leaderboard's existing query-string behavior).
+    matching the leaderboard's existing query-string behavior). The window is
+    on when the session was flown, not when it was uploaded (see
+    ``within_days``).
     """
-    # Django
-    from django.utils import timezone
-
     from .models import CombatLogUpload
-
-    if now is None:
-        now = timezone.now()
 
     qs = CombatLogUpload.objects.select_related(
         "character",
         "uploaded_by",
         "uploaded_by__profile",
         "uploaded_by__profile__main_character",
-    )
+    ).defer(*DETAIL_FIELDS)
     days = RANGE_DAYS.get(range_key)
     if days is not None:
-        qs = qs.filter(uploaded_at__gte=now - timedelta(days=days))
+        qs = within_days(qs, days, now)
     return rollup_sessions(qs, sort_key=sort_key, sum_fields=sum_fields)
