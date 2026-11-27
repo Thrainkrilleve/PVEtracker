@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- README now says v0.0.7, matching the package.
+- Leaderboard roll-up lives in `aa_pvetracker.leaderboard` so the site, the dashboard rank, and a later Discord post share one grouping. Extra numeric columns can be summed later without a second grouping.
+- Any logged-in member can view the leaderboard, a session, and the events list. `pvetracker.basic_access` is the upload and delete permission.
+- Shared section nav (Leaderboard / Upload / My Uploads / Events), a session page that reuses the upload dashboard, and My Uploads plus the dashboard widget now show duration, last session, and rank.
+- One checkbox hides your sessions from the events list. Leaderboard totals stay.
+- Dashboard widget matches sessions by character row. On Alliance Auth 5 the EVE character id is not the primary key, so the old id comparison never matched an upload.
+- `Payout` (character, time, type, amount, journal id) and `CombatLogUpload.ship_type_id` are in the schema for a later release. Nothing writes them yet.
+- GitHub Actions runs the test suite on Alliance Auth 5.6.0.
+
 ## v0.0.7
 
 Fix the leaderboard's per-character detail row rendering as a solid white bar — turned out to be a second, different bug from the v0.0.5 collapse fix. DevTools inspection confirmed the collapse mechanism itself was working correctly (Bootstrap marked the trigger `collapsed`/`aria-expanded="false"` as expected); the actual bug was Bootstrap's `bg-body-tertiary` utility not resolving to a dark background on a nested `<table class="table ...">` under Alliance Auth's Bootswatch-based theme (which pre-compiles a fixed theme rather than using Bootstrap 5.3's `data-bs-theme` variable-swap dark mode, so some table-specific background variables don't carry through the same way). Fixed by dropping Bootstrap's `.table` classes for this nested element and giving it fully explicit, self-contained CSS (`.pvet-detail-table`) instead — consistent with how the rest of this app's custom `.pvet-*` components are already styled, all of which were rendering correctly.

@@ -1,0 +1,12 @@
+{% extends 'pvetracker/base.html' %}
+{% load i18n %}
+
+{% block pvetracker_content %}
+<p class="text-body-secondary small mb-3">
+    <a href="{% url 'pvetracker:leaderboard' %}">{% trans "Leaderboard" %}</a>
+    {% if perms.pvetracker.basic_access %}
+    · <a href="{% url 'pvetracker:my_uploads' %}">{% trans "My Uploads" %}</a>
+    {% endif %}
+</p>
+{% include "pvetracker/includes/session_dashboard.html" %}
+{% endblock %}

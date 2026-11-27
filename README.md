@@ -6,29 +6,37 @@ Each EVE client's combat log only ever records damage *involving that pilot* —
 
 ## Status
 
-**v0.0.2 — Phase 1 (upload + leaderboard).** This is the upload-and-leaderboard half of the project; live in-browser log tailing (via the File System Access API, so a pilot's dashboard updates in real time while they fly) is planned for a later release and isn't in this version.
+**v0.0.7.** Alliance Auth 4.3.1 up to, but not including, 6 (`allianceauth>=4.3.1,<6`). Combat stats still come from uploaded EVE Gamelog `.txt` files.
 
-A note on naming: the installable/importable package is `aa_pvetracker` (distributed as `aa-pvetracker`), but the Django app *label* — used in permission strings (`pvetracker.basic_access`), the URL namespace (`{% url 'pvetracker:...' %}`), and `manage.py` app-label arguments (`manage.py test pvetracker`) — is the shorter `pvetracker`. This is a standard, supported Django distinction (`AppConfig.name` vs `AppConfig.label`), used here so the label doesn't need to change again if the distribution is ever renamed.
+Any logged-in member can view the leaderboard, a stored session, and the events list. Uploading and deleting logs needs `pvetracker.basic_access`.
+
+A note on naming: the installable/importable package is `aa_pvetracker` (distributed as `aa-pvetracker`), but the Django app *label* — used in permission strings (`pvetracker.basic_access`), the URL namespace (`{% url 'pvetracker:...' %}`), and migration app labels — is the shorter `pvetracker`. This is a standard, supported Django distinction (`AppConfig.name` vs `AppConfig.label`). Test discovery follows the import package, so the suite is `manage.py test aa_pvetracker`, not `pvetracker`.
 
 ## Features
 
-- **Drag-and-drop upload** of a Gamelog `.txt` file (from `Documents\EVE\logs\Gamelogs`) — falls back to a plain file picker with no JS.
-- **Ownership-verified attribution** — a log is only accepted if its `Listener:` character is one the uploading user actually owns on Alliance Auth, so nobody can pad another pilot's numbers.
-- **Main/alt roll-up** — leaderboard rows are grouped by each user's designated main character, exactly like FAT groups fleet participation, with a per-character breakdown on expand.
-- **Per-session stats**: damage dealt/received, hit-quality breakdown, top targets/attackers, reps received (and an estimated reps-given figure — see Known Limitations).
-- **My Uploads** page to review or delete your own uploads.
-- **Dashboard widget** showing your own last-7-days damage and reps given.
+- **Drag-and-drop upload** of a Gamelog `.txt` file (from `Documents\EVE\logs\Gamelogs`) — falls back to a plain file picker with no JS. Upload and delete require `pvetracker.basic_access`.
+- **Ownership-verified attribution** — a log is only accepted if its `Listener:` character is one the uploading user actually owns on Alliance Auth.
+- **Main/alt roll-up** — leaderboard rows are grouped by each user's designated main character, with a per-character breakdown on expand. The grouping lives in `aa_pvetracker.leaderboard` so later Discord and ISK/kill columns can use the same buckets.
+- **Fleet leaderboard** for the last 7 days, last 30 days, or all time, with rank badges and sortable damage and rep columns.
+- **Session page** — the upload-result dashboard (tiles, hit-quality bars, top targets and attackers, recent activity) has a stable URL, linked from My Uploads. Any logged-in member can open it.
+- **My Uploads** shows duration, your last session, and your 30-day damage rank.
+- **Events** lists recent lines from uploaded sessions. One checkbox hides your sessions from that list; leaderboard totals are unchanged. Live tailing is not in this version.
+- **Dashboard widget** with your last-7-days damage and reps, last session, and 7-day damage rank.
+- **Shared section nav** on every page: Leaderboard, Upload, My Uploads, Events. Upload and My Uploads are shown only when you can upload.
 
-## Known limitations (v0.0.2)
+## Known limitations (v0.0.7)
 
-- **No live tracking yet.** This version only reads finished (or in-progress, but manually re-uploaded) log files — it doesn't watch a growing log in real time. That's planned for a later release using the browser's File System Access API.
-- **`reps_given_total` is an estimate.** The regex for a logi pilot's own *outgoing* remote-repair line was written by mirroring the (fully verified) incoming-rep line shape, since we didn't have a real logi pilot's log to test against at the time. If your numbers look off, please open an issue with a sample line (amounts/names redacted is fine).
-- **Trust model**: a log's *character* is cryptographically-adjacent verified (it must be one you own via Alliance Auth's SSO-backed character ownership), but the *numbers in it* are still just whatever your own client wrote to disk — there's no independent server-side corroboration.
+- **No live tracking yet.** This version only reads finished (or in-progress, but manually re-uploaded) log files. A later release is planned around the browser File System Access API.
+- **No ESI wallet ingest, zKill feed, or Discord post yet.** A `Payout` table (character, time, type, amount, journal id) and a per-session `ship_type_id` are reserved and empty.
+- **Damage, payout ISK, and kill value stay separate.** This version only has the damage and rep columns.
+- **`reps_given_total` is an estimate.** The regex for a logi pilot's own *outgoing* remote-repair line was written by mirroring the incoming-rep line shape, since a real logi pilot's log was not available to test against. If the numbers look off, open an issue with a sample line (amounts and names redacted is fine).
+- **Trust model**: a log's *character* has to be one you own via Alliance Auth, but the *numbers in it* are still whatever that client wrote to disk.
 
 ## Requirements
 
 - Python >= 3.10
 - Alliance Auth >= 4.3.1, < 6
+- Redis (Alliance Auth already requires it)
 
 ## Installation
 
@@ -48,26 +56,26 @@ A note on naming: the installable/importable package is `aa_pvetracker` (distrib
    docker compose up -d
    ```
 
-4. Grant the `pvetracker.basic_access` permission to whichever group(s) should be able to upload logs and see the leaderboard.
+4. Grant `pvetracker.basic_access` to the group(s) that should upload and delete logs. Viewing does not need it: any logged-in member can open the leaderboard, sessions, and events.
 
 ## Development
 
-A lightweight SQLite dev harness (`manage.py` / `settings_dev.py` / `urls_dev.py`) is included for local iteration. It's enough to run the standalone parser tests and to confirm the migration matches model state, without a full Alliance Auth stack:
+The SQLite harness (`manage.py`, `settings_dev.py`, `urls_dev.py`) runs the parser tests, the leaderboard-helper tests, and the Django view tests. Alliance Auth's own system checks need a Redis server and the placeholder settings in `settings_dev.py` (every URL there is `https://example.com`; nothing in that file is a credential).
 
 ```bash
-python -m venv .venv
-.venv/Scripts/pip install allianceauth
-.venv/Scripts/python -m unittest aa_pvetracker.tests.test_parsing
+python -m pip install "allianceauth==5.6.0"
+python -m pip install -e . --no-deps
 
-# confirm 0001_initial.py matches the current models (no changes detected):
-DJANGO_SETTINGS_MODULE=settings_dev .venv/Scripts/python -c "
-import django; django.setup()
-from django.core.management import call_command
-call_command('makemigrations', 'pvetracker', dry_run=True, check=True, skip_checks=True)"
+# no database: parser + roll-up helper
+python -m unittest aa_pvetracker.tests.test_parsing aa_pvetracker.tests.test_leaderboard
+
+# full suite, including views (Redis on localhost:6379)
+python manage.py test aa_pvetracker
+
+# migration matches the models:
+python manage.py makemigrations pvetracker --check --dry-run
 ```
 
-It's *not* enough to run the full Django `TestCase` suite (`pvetracker/tests/test_views.py`) — Alliance Auth's own app registry expects the complete official app roster (it errors on `InvalidBasesError` with only the minimal set of apps this harness installs), and separately, several of its startup checks require a reachable Redis. Run the full suite inside your real Docker instance instead, where both are already correctly configured:
+`settings_dev.py` is not a production settings file. Confirm the pages against your real Alliance Auth theme in the Auth container when you care about Bootswatch colors; the nested leaderboard detail table is styled with the app's own classes for that reason.
 
-```bash
-docker compose exec allianceauth_gunicorn python manage.py test pvetracker
-```
+GitHub Actions runs `python manage.py test aa_pvetracker` on Python 3.12 with Alliance Auth 5.6.0 and Redis 7.4.

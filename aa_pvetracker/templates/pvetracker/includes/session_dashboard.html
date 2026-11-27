@@ -1,0 +1,121 @@
+{% load i18n %}
+<div class="d-flex justify-content-between align-items-baseline mb-2 flex-wrap gap-2">
+    <div>
+        <h2 class="mb-0">{{ session.character.character_name }}</h2>
+        <span class="text-body-secondary small">
+            {% if session.session_started and session.session_ended %}
+            {{ session.duration_display }} {% trans "session" %} &middot;
+            {% endif %}
+            {{ session.source_filename }}
+        </span>
+    </div>
+    <span class="text-body-secondary small">
+        {{ session.matched_lines }} / {{ session.combat_lines }} {% trans "combat lines scored" %}
+    </span>
+</div>
+
+<div class="pvet-stat-grid mb-3">
+    <div class="pvet-stat-card out">
+        <div class="pvet-stat-label">{% trans "Damage Dealt" %}</div>
+        <div class="pvet-stat-value">{{ session.damage_out }}</div>
+        <div class="pvet-stat-foot">{{ session.dps_out|floatformat:0 }} {% trans "DPS avg" %}</div>
+    </div>
+    <div class="pvet-stat-card in">
+        <div class="pvet-stat-label">{% trans "Damage Received" %}</div>
+        <div class="pvet-stat-value">{{ session.damage_in }}</div>
+        <div class="pvet-stat-foot">{{ session.dps_in|floatformat:0 }} {% trans "DPS avg" %}</div>
+    </div>
+    <div class="pvet-stat-card rep">
+        <div class="pvet-stat-label">{% trans "Reps Received" %}</div>
+        <div class="pvet-stat-value">{{ session.reps_received_total }}</div>
+        <div class="pvet-stat-foot">&nbsp;</div>
+    </div>
+    <div class="pvet-stat-card rep">
+        <div class="pvet-stat-label">{% trans "Reps Given" %}</div>
+        <div class="pvet-stat-value">{{ session.reps_given_total }}</div>
+        <div class="pvet-stat-foot">{% trans "estimated" %}</div>
+    </div>
+</div>
+
+<div class="row g-3 mb-3">
+    <div class="col-md-6">
+        <div class="pvet-panel">
+            <div class="pvet-panel-title">{% trans "Top Targets" %}</div>
+            <table class="pvet-mini-table out">
+                <tbody>
+                    {% for name, amt in session.top_targets %}
+                    <tr><td>{{ name }}</td><td class="pvet-amt">{{ amt }}</td></tr>
+                    {% empty %}
+                    <tr><td class="text-body-secondary">{% trans "no data" %}</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="pvet-panel">
+            <div class="pvet-panel-title">{% trans "Top Attackers" %}</div>
+            <table class="pvet-mini-table in">
+                <tbody>
+                    {% for name, amt in session.top_attackers %}
+                    <tr><td>{{ name }}</td><td class="pvet-amt">{{ amt }}</td></tr>
+                    {% empty %}
+                    <tr><td class="text-body-secondary">{% trans "no data" %}</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<div class="row g-3 mb-3">
+    <div class="col-md-6">
+        <div class="pvet-panel">
+            <div class="pvet-panel-title">{% trans "Hit Quality — Outgoing" %}</div>
+            {% for q, n in session.quality_out %}
+            <div class="pvet-bar-row">
+                <div class="pvet-bar-name">{{ q }}</div>
+                <div class="pvet-bar-track"><div class="pvet-bar-fill q-{{ q|slugify }}" style="width: {% widthratio n session.shots_out 100 %}%"></div></div>
+                <div class="pvet-bar-num">{{ n }}</div>
+            </div>
+            {% empty %}
+            <span class="text-body-secondary">{% trans "no data" %}</span>
+            {% endfor %}
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="pvet-panel">
+            <div class="pvet-panel-title">{% trans "Hit Quality — Incoming" %}</div>
+            {% for q, n in session.quality_in %}
+            <div class="pvet-bar-row">
+                <div class="pvet-bar-name">{{ q }}</div>
+                <div class="pvet-bar-track"><div class="pvet-bar-fill q-{{ q|slugify }}" style="width: {% widthratio n session.shots_in 100 %}%"></div></div>
+                <div class="pvet-bar-num">{{ n }}</div>
+            </div>
+            {% empty %}
+            <span class="text-body-secondary">{% trans "no data" %}</span>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+
+<div class="pvet-panel mb-3">
+    <div class="pvet-panel-title">{% trans "Recent Activity" %}</div>
+    <div class="pvet-feed">
+        {% for item in session.feed %}
+        {% include "pvetracker/includes/feed_line.html" %}
+        {% empty %}
+        <span class="text-body-secondary">{% trans "no activity recorded" %}</span>
+        {% endfor %}
+    </div>
+</div>
+
+<div class="d-flex flex-wrap gap-2">
+    {% if show_open_link %}
+    <a href="{% url 'pvetracker:session' session.pk %}" class="btn btn-outline-secondary">{% trans "Open this session" %}</a>
+    {% endif %}
+    <a href="{% url 'pvetracker:leaderboard' %}" class="btn btn-outline-secondary">{% trans "View leaderboard" %}</a>
+    {% if can_delete %}
+    <a href="{% url 'pvetracker:delete_upload' session.pk %}" class="btn btn-outline-danger">{% trans "Delete" %}</a>
+    {% endif %}
+</div>
