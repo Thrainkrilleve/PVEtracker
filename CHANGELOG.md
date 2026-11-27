@@ -1,14 +1,37 @@
 # Changelog
 
-## Unreleased
+## v0.1.0 — Pilot Stats
 
-Run `migrate` (adds `0002_esi_zkill_fleets` and `0003_discord`) and add the new beat tasks from the README.
+The first release on PyPI as `aa-pilotstats`. PvE Tracker is renamed to Pilot Stats, Gamelog uploads can be automated, and payouts, killmails, fleets and a Discord feed join the combat logs.
 
-- **Discord webhook feed** (Admin → Pilot Stats → Discord settings).
-  - A daily top 10 for damage and payout ISK (last 24 h), with the biggest kills and losses, at a set time and time zone.
-  - Major events: a payout line or a member's kill/loss over a threshold (default 300M), and new fleet / personal records for session damage, session DPS, and payouts in a day.
-  - Every post goes out once, event posts are capped per hour, and nobody is ever pinged. Embeds stay within Discord's limits and long posts split across messages. 429s and server errors are retried.
-  - The webhook URL lives in the database only and is write-only in admin. There's a "send a test message" admin action.
+**Upgrading from PvE Tracker:** follow "Upgrading from PvE Tracker" in the README: swap `aa-pvetracker` for `aa-pilotstats`, replace `"aa_pvetracker"` with `"aa_pilotstats"` in `INSTALLED_APPS`, add the beat tasks from the README to `local.py`, then `migrate` and `collectstatic`. `migrate` adopts the old tables (`0001_initial`) and adds `0002_esi_zkill_fleets` and `0003_discord`.
+
+### Renamed to Pilot Stats
+
+| | Before | Now |
+|---|---|---|
+| Package | `aa-pvetracker` / `aa_pvetracker` | `aa-pilotstats` / `aa_pilotstats` |
+| Django label | `pvetracker` | `pilotstats` |
+| Permission | `pvetracker.basic_access` | `pilotstats.basic_access` |
+| URLs | `/pvetracker/…`, `pvetracker:` | `/pilotstats/…`, `pilotstats:` |
+
+- **Data and permissions carry over.** The new `0001_initial` renames the old tables in place with their rows, moves the content types so `basic_access` group grants keep working, renames the permission's display name, and removes PvE Tracker's migration rows. A fresh install just creates the tables.
+- Old `/pvetracker/…` links redirect permanently to `/pilotstats/…`, with the query string kept.
+- System check `pilotstats.E001` refuses to start while `aa_pvetracker` is still in `INSTALLED_APPS`.
+- Templates, static files, CSS classes (`.pstats-*`), and the dashboard panel moved to the new name. Database index and constraint names keep their `pvetracker_` prefix so upgraded tables match.
+- The PvE Tracker migrations 0001–0004 are replaced by the single Pilot Stats `0001_initial`.
+
+### Gamelog folder scanning
+
+- **Gamelog folder scanning** on the Upload page.
+  - In Chrome or Edge, pick the Gamelogs folder once. While the tab is open, new and grown logs upload every minute, and a growing log updates its session.
+  - Other browsers can scan a folder once.
+  - Only the user's own characters' logs leave the computer. Logs from the last 7 days go by default, and a checkbox includes older ones.
+- **Multi-file drop**: dropping several logs uploads each in turn, with a per-file result list. A single file still posts the form and shows its session dashboard.
+- The upload endpoint also answers JSON (`Accept: application/json`) with a result code (`created`, `updated`, `duplicate`, `no_new_lines`, `no_combat`, `not_gamelog`, `not_owned`, `other_account`, `too_large`). New `upload/characters.json` lists the user's characters for the scanner's local filter.
+- JSON uploads are limited per user (`PILOTSTATS_SCANNER_UPLOADS_PER_MINUTE`, default 30; 429 with `Retry-After`). The upload form is unchanged and unlimited.
+
+### Wallet payouts, zKill kills and losses, fleet tracking
 
 - **Wallet payouts (optional per pilot).**
   - Pilots can connect a character's wallet (`esi-wallet.read_character_wallet.v1`). An hourly task stores bounty, ESS and mission payout lines, nothing else, and adds a **Payout ISK** column (with a per-type breakdown) to the leaderboard.
@@ -27,30 +50,13 @@ Run `migrate` (adds `0002_esi_zkill_fleets` and `0003_discord`) and add the new 
 - Hull and NPC names come from the `eve_sde` app when installed, otherwise from CCP's SDE over HTTP, cached locally. Pages never wait on it.
 - New dependencies: `django-esi>=9.0` (already required by Alliance Auth) and `requests`. Works with django-esi 9.x and 10.x; CI tests both.
 
-- **Gamelog folder scanning** on the Upload page.
-  - In Chrome or Edge, pick the Gamelogs folder once. While the tab is open, new and grown logs upload every minute, and a growing log updates its session.
-  - Other browsers can scan a folder once.
-  - Only the user's own characters' logs leave the computer. Logs from the last 7 days go by default, and a checkbox includes older ones.
-- **Multi-file drop**: dropping several logs uploads each in turn, with a per-file result list. A single file still posts the form and shows its session dashboard.
-- The upload endpoint also answers JSON (`Accept: application/json`) with a result code (`created`, `updated`, `duplicate`, `no_new_lines`, `no_combat`, `not_gamelog`, `not_owned`, `other_account`, `too_large`). New `upload/characters.json` lists the user's characters for the scanner's local filter.
-- JSON uploads are limited per user (`PILOTSTATS_SCANNER_UPLOADS_PER_MINUTE`, default 30; 429 with `Retry-After`). The upload form is unchanged and unlimited.
+### Discord webhook feed
 
-## v0.1.0 — renamed to Pilot Stats
-
-**PvE Tracker is now Pilot Stats.** Follow "Upgrading from PvE Tracker" in the README: swap `aa-pvetracker` for `aa-pilotstats`, replace `"aa_pvetracker"` with `"aa_pilotstats"` in `INSTALLED_APPS`, then `migrate` and `collectstatic`.
-
-| | Before | Now |
-|---|---|---|
-| Package | `aa-pvetracker` / `aa_pvetracker` | `aa-pilotstats` / `aa_pilotstats` |
-| Django label | `pvetracker` | `pilotstats` |
-| Permission | `pvetracker.basic_access` | `pilotstats.basic_access` |
-| URLs | `/pvetracker/…`, `pvetracker:` | `/pilotstats/…`, `pilotstats:` |
-
-- **Data and permissions carry over.** The new `0001_initial` renames the old tables in place with their rows, moves the content types so `basic_access` group grants keep working, renames the permission's display name, and removes PvE Tracker's migration rows. A fresh install just creates the tables.
-- Old `/pvetracker/…` links redirect permanently to `/pilotstats/…`, with the query string kept.
-- System check `pilotstats.E001` refuses to start while `aa_pvetracker` is still in `INSTALLED_APPS`.
-- Templates, static files, CSS classes (`.pstats-*`), and the dashboard panel moved to the new name. Database index and constraint names keep their `pvetracker_` prefix so upgraded tables match.
-- The PvE Tracker migrations 0001–0004 are replaced by the single Pilot Stats `0001_initial`.
+- **Discord webhook feed** (Admin → Pilot Stats → Discord settings).
+  - A daily top 10 for damage and payout ISK (last 24 h), with the biggest kills and losses, at a set time and time zone.
+  - Major events: a payout line or a member's kill/loss over a threshold (default 300M), and new fleet / personal records for session damage, session DPS, and payouts in a day.
+  - Every post goes out once, event posts are capped per hour, and nobody is ever pinged. Embeds stay within Discord's limits and long posts split across messages. 429s and server errors are retried.
+  - The webhook URL lives in the database only and is write-only in admin. There's a "send a test message" admin action.
 
 ## v0.0.11
 
