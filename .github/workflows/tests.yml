@@ -34,7 +34,11 @@ jobs:
       - name: Install Alliance Auth ${{ matrix.allianceauth }} and this app
         run: |
           python -m pip install --upgrade pip
-          pip install "allianceauth==${{ matrix.allianceauth }}"
+          # Auth releases before 5.6.0 don't cap django-sri, and django-sri 1.0
+          # dropped the {% sri_static %} tag Auth's own templates use. 5.6.0 pins
+          # django-sri<1; apply the same cap so older 5.x installs like a real
+          # site that was set up before django-sri 1.0.
+          pip install "allianceauth==${{ matrix.allianceauth }}" "django-sri<1"
           pip install -e . --no-deps
       - name: Check migrations match the models
         env:
