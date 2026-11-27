@@ -5,6 +5,7 @@ Celery tasks. Schedule them in local.py (see the README):
     drain_r2z2                 1 min     zKill R2Z2 → killmails
     poll_tracked_fleets        1 min     ESI fleet roster for tracked fleets
     purge_old_payouts          daily     drop itemized payouts past retention
+    post_discord_daily         5 min     daily top 10 to Discord, once at the set time
 
 Every task is safe to run late, twice, or not at all for a while.
 """
@@ -35,7 +36,7 @@ from esi.exceptions import (
 )
 from esi.models import Token
 
-from . import fleets, payouts, providers, typenames, zkill
+from . import discord, fleets, payouts, providers, typenames, zkill
 from .app_settings import (
     PAYOUT_RETENTION_DAYS,
     R2Z2_MAX_PER_RUN,
@@ -45,6 +46,8 @@ from .app_settings import (
     WALLET_SCOPE,
 )
 from .models import (
+    CombatLogUpload,
+    DiscordPost,
     Killmail,
     KillmailParticipant,
     NpcKillDaily,
@@ -116,6 +119,7 @@ def pull_wallet_journal(self, character_id: int):
         logger.warning("Wallet journal for %s didn't validate; skipped", character_id, exc_info=True)
         return
     if payouts.store_journal(character, entries):
+        discord.check_payouts(character)
         unnamed = typenames.missing(
             NpcKillDaily.objects.filter(character=character)
             .values_list("npc_type_id", flat=True).distinct()
@@ -180,6 +184,9 @@ def drain_r2z2(max_files: int = R2Z2_MAX_PER_RUN, interval: float = R2Z2_REQUEST
             response.raise_for_status()
             package = response.json()
             if zkill.process_killmail(package, corps, alliances):
+                kept = Killmail.objects.filter(killmail_id=package.get("killmail_id")).first()
+                if kept is not None:
+                    discord.check_killmail(kept)
                 esi = package.get("esi") or {}
                 ship_types.add((esi.get("victim") or {}).get("ship_type_id"))
                 ship_types.update(a.get("ship_type_id") for a in esi.get("attackers") or [])
@@ -243,3 +250,50 @@ def resolve_known_type_names():
     ids = set(Killmail.objects.values_list("victim_ship_type_id", flat=True))
     ids.update(KillmailParticipant.objects.values_list("ship_type_id", flat=True))
     typenames.resolve(ids)
+
+
+# ---- Discord ------------------------------------------------------------------------
+
+
+@shared_task
+def post_discord_daily():
+    """Runs every few minutes; posts the daily top 10 once, at the configured local time."""
+    discord.post_daily()
+
+
+@shared_task
+def check_session_records(session_pk: int):
+    session = CombatLogUpload.objects.filter(pk=session_pk).first()
+    if session is not None:
+        discord.check_session_records(session)
+
+
+@shared_task(bind=True, max_retries=5)
+def send_discord_post(self, post_pk: int, body: dict):
+    """POST one message to the webhook. Honors 429 retry_after; retries server errors."""
+    post = DiscordPost.objects.filter(pk=post_pk).first()
+    config = discord.DiscordSettings.get()
+    if post is None or not config.is_active:
+        return
+    try:
+        response = requests.post(
+            config.webhook_url, json=body, timeout=10, headers={"User-Agent": USER_AGENT},
+        )
+    except requests.RequestException as exc:
+        raise self.retry(exc=exc, countdown=60 * (self.request.retries + 1))
+    if response.status_code == 429:
+        try:
+            wait = float(response.json().get("retry_after", 5))
+        except ValueError:
+            wait = float(response.headers.get("Retry-After", 5))
+        raise self.retry(countdown=max(1, int(wait) + 1))
+    if response.status_code >= 500:
+        raise self.retry(countdown=60 * (self.request.retries + 1))
+    if response.status_code >= 400:
+        # Bad or deleted webhook: retrying won't help.
+        logger.warning("Discord webhook refused a post (%s)", response.status_code)
+        DiscordPost.objects.filter(pk=post_pk).update(
+            status=DiscordPost.Status.FAILED, detail=f"HTTP {response.status_code}",
+        )
+        return
+    DiscordPost.objects.filter(pk=post_pk).update(status=DiscordPost.Status.SENT)

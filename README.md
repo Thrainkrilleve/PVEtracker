@@ -89,6 +89,10 @@ A note on naming: the installable/importable package is `aa_pilotstats` (distrib
        "task": "aa_pilotstats.tasks.purge_old_payouts",
        "schedule": crontab(minute="23", hour="4"),
    }
+   CELERYBEAT_SCHEDULE["pilotstats_post_discord_daily"] = {
+       "task": "aa_pilotstats.tasks.post_discord_daily",
+       "schedule": crontab(minute="*/5"),  # posts once a day at the time set in admin
+   }
    ```
 
    Skip a task to turn its source off. The Gamelog features don't need any of them.
@@ -114,6 +118,26 @@ A note on naming: the installable/importable package is `aa_pilotstats` (distrib
 - **Fleets:** pilot id, hull, and first and last time seen. Tracking stops by itself when the boss leaves or hands over the fleet.
 
 ESI calls use django-esi's client with a pinned compatibility date (`PILOTSTATS_ESI_COMPATIBILITY_DATE`) and its built-in ETag and rate-limit handling. Only the wallet journal, character fleet and fleet members routes are called.
+
+## Discord feed
+
+Posts to one Discord channel through a webhook. There are no bot or slash commands. Set it up under *Admin → Pilot Stats → Discord settings*:
+
+1. In Discord, go to the channel's *Settings → Integrations → Webhooks → New Webhook → Copy Webhook URL*.
+2. Paste it into **webhook URL**, tick **enabled**, and save. The URL is stored in the database only and is never shown again; leave the field blank to keep it.
+3. Select the settings row and run **Send a test message to the webhook**.
+
+**What gets posted:**
+- **Daily top 10**: once a day at the set time and time zone (default 11:05 UTC, after EVE downtime).
+  - Top 10 for damage dealt and for payout ISK over the last 24 hours, plus the biggest kills and losses.
+  - Pilots are grouped by main, like the leaderboard.
+- **Major events**, as they happen:
+  - A single payout line at or over the payout threshold (default 300M). These arrive up to an hour late, because ESI caches the wallet journal.
+  - A member's kill or loss at or over the kill threshold (default 300M).
+  - New **fleet records** (and personal records, after five sessions) for session damage and session DPS.
+  - A new fleet record for one main's payouts in a day.
+- Event posts are capped per hour (default 6); extras are skipped, not queued. The daily post is never capped.
+- Each post goes out once (there's a log under *Discord posts*), only names and numbers are sent, and nobody is ever pinged. Keep in mind the channel may be visible to people who aren't on Auth.
 
 ## Settings
 
