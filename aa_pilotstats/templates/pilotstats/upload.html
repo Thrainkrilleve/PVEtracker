@@ -1,0 +1,73 @@
+{% extends 'pilotstats/base.html' %}
+{% load i18n %}
+
+{% block pilotstats_content %}
+<h1>{% trans "Upload a Combat Log" %}</h1>
+<p class="text-body-secondary">
+    {% trans "Drop a .txt file from" %} <code>Documents\EVE\logs\Gamelogs</code>
+    {% trans "or click to pick one. It only records what your own client saw." %}
+</p>
+
+{% if messages %}
+{% for message in messages %}
+<div class="alert alert-{{ message.tags }}">{{ message }}</div>
+{% endfor %}
+{% endif %}
+
+<div id="pilotstats-scanner" class="pstats-panel bg-body-tertiary text-body mb-3"
+     data-upload-url="{% url 'pilotstats:upload' %}"
+     data-characters-url="{% url 'pilotstats:upload_characters' %}"
+     data-recent-days="{{ scanner_recent_days }}">
+    <div class="pstats-panel-title text-body-secondary">{% trans "Scan my Gamelogs folder" %}</div>
+    <p class="small text-body-secondary mb-2">
+        {% blocktrans trimmed %}
+        Pick your <code>Documents\EVE\logs\Gamelogs</code> folder once. Your logs are read on this
+        computer, and only logs for characters on your Auth account are uploaded. A log that
+        keeps growing updates the same session.
+        {% endblocktrans %}
+    </p>
+    <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
+        <button type="button" class="btn btn-sm btn-primary" data-scanner-action="pick" hidden>
+            <i class="fas fa-folder-open"></i> {% trans "Choose Gamelogs folder" %}
+        </button>
+        <button type="button" class="btn btn-sm btn-primary" data-scanner-action="resume" hidden></button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-scanner-action="stop" hidden>
+            {% trans "Stop scanning" %}
+        </button>
+        <label class="btn btn-sm btn-outline-secondary mb-0" data-scanner-action="once">
+            <i class="fas fa-folder"></i> {% trans "Scan a folder once" %}
+            <input type="file" webkitdirectory multiple hidden data-scanner-input>
+        </label>
+        <div class="form-check mb-0 ms-1">
+            <input class="form-check-input" type="checkbox" id="pilotstats-scanner-older" data-scanner-older>
+            <label class="form-check-label small" for="pilotstats-scanner-older">
+                {% blocktrans trimmed with days=scanner_recent_days %}
+                Include logs older than {{ days }} days
+                {% endblocktrans %}
+            </label>
+        </div>
+    </div>
+    <p class="small mb-1" data-scanner-status role="status" aria-live="polite">
+        <span class="text-body-secondary" data-scanner-support></span>
+    </p>
+    <ul class="pstats-scan-list list-unstyled small mb-0" data-scanner-list></ul>
+</div>
+
+<form method="post" enctype="multipart/form-data" id="pilotstats-upload-form">
+    {% csrf_token %}
+    <div id="pilotstats-dropzone" class="card bg-body-tertiary text-body mb-3">
+        <div class="card-body text-center py-5">
+            <i class="fas fa-cloud-upload-alt fa-2x mb-2 text-body-secondary"></i>
+            <p class="mb-2">{% trans "Drag one or more Gamelog .txt files here" %}</p>
+            <p class="text-body-secondary small mb-2">{% trans "or" %}</p>
+            {{ form.log_file }}
+        </div>
+    </div>
+    <button type="submit" class="btn btn-primary">{% trans "Upload" %}</button>
+</form>
+
+{% if result %}
+<hr class="my-4">
+{% include "pilotstats/includes/session_dashboard.html" with session=result show_open_link=True %}
+{% endif %}
+{% endblock %}

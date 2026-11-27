@@ -1,0 +1,92 @@
+{% extends 'pilotstats/base.html' %}
+{% load i18n pilotstats %}
+
+{% block pilotstats_content %}
+<h1 class="mb-2">{% trans "Events" %}</h1>
+<p class="text-body-secondary">
+    {% trans "Recent combat lines from uploaded sessions, and recent kills and losses from zKillboard. Payout ISK and kill value are shown as their own numbers, never added into damage." %}
+</p>
+
+{% if messages %}
+{% for message in messages %}
+<div class="alert alert-{{ message.tags }}">{{ message }}</div>
+{% endfor %}
+{% endif %}
+
+<div class="row g-3 mb-3">
+    <div class="col-lg-6">
+        <form method="post" class="pstats-panel bg-body-tertiary text-body h-100">
+            {% csrf_token %}
+            <div class="pstats-panel-title text-body-secondary">{% trans "Privacy" %}</div>
+            {% for field in form %}
+            <div class="form-check mb-1">
+                {{ field }}
+                <label class="form-check-label text-body" for="{{ field.id_for_label }}">{{ field.label }}</label>
+            </div>
+            <p class="text-body-secondary small mb-2">{{ field.help_text }}</p>
+            {% endfor %}
+            <button type="submit" class="btn btn-sm btn-primary">{% trans "Save" %}</button>
+        </form>
+    </div>
+    <div class="col-lg-6">
+        <div class="pstats-panel bg-body-tertiary text-body h-100">
+            <div class="pstats-panel-title text-body-secondary">{% trans "Wallet (optional)" %}</div>
+            <p class="small text-body-secondary mb-2">
+                {% blocktrans trimmed %}
+                Connect a character's wallet to add its bounty, ESS and mission payouts (and rats
+                killed) to the leaderboard. Only those payout lines are kept: no balance, no other
+                transactions. ESI updates the journal about once an hour.
+                {% endblocktrans %}
+            </p>
+            {% if wallet_characters %}
+            <ul class="list-unstyled small mb-2">
+                {% for c in wallet_characters %}
+                <li>
+                    {% if c.connected %}<i class="fas fa-check-circle text-success fa-fw"></i>{% else %}<i class="far fa-circle text-body-secondary fa-fw"></i>{% endif %}
+                    {{ c.name }}
+                </li>
+                {% endfor %}
+            </ul>
+            {% endif %}
+            <a href="{% url 'pilotstats:connect_wallet' %}" class="btn btn-sm btn-outline-primary">
+                <i class="fas fa-wallet fa-fw"></i> {% trans "Connect a character's wallet" %}
+            </a>
+        </div>
+    </div>
+</div>
+
+<div class="row g-3">
+    <div class="col-lg-7">
+        <div class="pstats-panel bg-body-tertiary text-body">
+            <div class="pstats-panel-title text-body-secondary">{% trans "Recent Activity" %}</div>
+            <div class="pstats-feed">
+                {% for item in feed_rows %}
+                {% include "pilotstats/includes/feed_line.html" with show_date=True %}
+                {% empty %}
+                <p class="text-body-secondary mb-0">
+                    {% trans "No combat events yet. They show up here after a log is uploaded." %}
+                </p>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-5">
+        <div class="pstats-panel bg-body-tertiary text-body">
+            <div class="pstats-panel-title text-body-secondary">{% trans "Recent kills & losses" %}</div>
+            {% for p in killmails %}
+            <div class="pstats-km-row {% if p.is_victim %}loss{% else %}kill{% endif %}">
+                <span class="text-body-secondary">{{ p.killmail.killmail_time|date:"m-d H:i" }}</span>
+                <span class="pstats-km-what">
+                    {{ p.character.character_name }}
+                    {% if p.is_victim %}{% trans "lost" %}{% else %}{% trans "killed" %}{% endif %}
+                    <a href="{{ p.killmail.zkill_url }}" target="_blank" rel="noopener">{{ p.killmail.victim_ship_type_id|type_name:names }}</a>
+                </span>
+                <span class="pstats-km-value">{{ p.killmail.total_value|isk }}</span>
+            </div>
+            {% empty %}
+            <p class="text-body-secondary mb-0">{% trans "No kills or losses recorded yet." %}</p>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+{% endblock %}

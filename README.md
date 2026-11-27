@@ -1,22 +1,29 @@
-# PVEtracker
+# Pilot Stats
 
-> Fleet damage & logi tracking for [Alliance Auth](https://allianceauth.readthedocs.io/) — upload EVE combat logs, attribute stats to characters (and roll alts up to mains), and see a fleet leaderboard.
+> Pilot and fleet stats for [Alliance Auth](https://allianceauth.readthedocs.io/): upload EVE combat logs, attribute stats to characters (and roll alts up to mains), and see a fleet leaderboard.
 
-Each EVE client's combat log only ever records damage *involving that pilot* — there's no way to see a whole fleet's damage from one file. PVEtracker solves this the same way FAT solves fleet attendance: every pilot uploads their own combat log, the app verifies the log actually belongs to a character on their Alliance Auth account, and the results roll up into one fleet-wide leaderboard.
+Pilot Stats was called **PvE Tracker** (`aa-pvetracker`) up to v0.0.11. To upgrade an existing install, see [Upgrading from PvE Tracker](#upgrading-from-pve-tracker). Your stored sessions and upload permissions carry over.
+
+Each EVE client's combat log only ever records damage *involving that pilot*, so no single file shows a whole fleet's damage. Pilot Stats solves this the same way FAT solves fleet attendance: every pilot uploads their own combat log, the app verifies the log actually belongs to a character on their Alliance Auth account, and the results roll up into one fleet-wide leaderboard.
 
 ## Status
 
-Alliance Auth 5.x only (`allianceauth>=5.0.0,<6`). Alliance Auth 4 is not supported. Combat stats still come from uploaded EVE Gamelog `.txt` files. The current version is in [`aa_pvetracker/__init__.py`](aa_pvetracker/__init__.py), and changes are listed in the [changelog](CHANGELOG.md).
+Alliance Auth 5.x only (`allianceauth>=5.0.0,<6`). Alliance Auth 4 is not supported. Combat stats still come from uploaded EVE Gamelog `.txt` files. The current version is in [`aa_pilotstats/__init__.py`](aa_pilotstats/__init__.py), and changes are listed in the [changelog](CHANGELOG.md).
 
-Any logged-in member can view the leaderboard, a stored session, and the events list. Uploading and deleting logs needs `pvetracker.basic_access`.
+Any logged-in member can view the leaderboard, a stored session, and the events list. Uploading and deleting logs needs `pilotstats.basic_access`.
 
-A note on naming: the installable/importable package is `aa_pvetracker` (distributed as `aa-pvetracker`), but the Django app *label* — used in permission strings (`pvetracker.basic_access`), the URL namespace (`{% url 'pvetracker:...' %}`), and migration app labels — is the shorter `pvetracker`. This is a standard, supported Django distinction (`AppConfig.name` vs `AppConfig.label`). Test discovery follows the import package, so the suite is `manage.py test aa_pvetracker`, not `pvetracker`.
+A note on naming: the installable/importable package is `aa_pilotstats` (distributed as `aa-pilotstats`), and the Django app *label* is the shorter `pilotstats`. The label is what you see in permission strings (`pilotstats.basic_access`), the URL namespace (`{% url 'pilotstats:...' %}`), table names, and migrations. Test discovery follows the import package, so the suite is `manage.py test aa_pilotstats`, not `pilotstats`.
 
 ## Features
 
-- **Drag-and-drop upload** of a Gamelog `.txt` file (from `Documents\EVE\logs\Gamelogs`) — falls back to a plain file picker with no JS. Upload and delete require `pvetracker.basic_access`.
+- **Drag-and-drop upload** of one or more Gamelog `.txt` files (from `Documents\EVE\logs\Gamelogs`). It falls back to a plain file picker with no JS. Upload and delete require `pilotstats.basic_access`.
+- **Gamelog folder scanning** on the Upload page, with no install:
+  - **Chrome / Edge**: pick the Gamelogs folder once. While the tab stays open, it's rescanned every minute and new or grown logs are uploaded, so an ongoing session refreshes about once a minute. The folder is remembered, so the next visit is one "Resume" click (the browser asks for permission again each visit).
+  - **Firefox / Safari**: "Scan a folder once" does the same pass a single time.
+  - Logs are read on the pilot's computer, and only logs whose `Listener:` is one of the user's own characters are sent; the server re-checks ownership anyway.
+  - By default only logs from the last 7 days go up. A checkbox includes older logs for a one-time backfill.
 - **Ownership-verified attribution** — a log is only accepted if its `Listener:` character is one the uploading user actually owns on Alliance Auth.
-- **Main/alt roll-up** — leaderboard rows are grouped by each user's designated main character, with a per-character breakdown on expand. The grouping lives in `aa_pvetracker.leaderboard` so later Discord and ISK/kill columns can use the same buckets.
+- **Main/alt roll-up** — leaderboard rows are grouped by each user's designated main character, with a per-character breakdown on expand. The grouping lives in `aa_pilotstats.leaderboard` so later Discord and ISK/kill columns can use the same buckets.
 - **Re-uploading a growing log updates the same session.** The EVE client keeps writing to one file per client session. A session is identified by its character plus the log header's `Session Started:` time, so uploading a longer copy replaces that session's totals instead of counting the fight twice.
 - **Fleet leaderboard** for the last 7 days, last 30 days, or all time, with rank badges and sortable damage and rep columns. The 7- and 30-day windows go by when the fight happened (the log's first combat line, in EVE time / UTC), not by when the log was uploaded.
 - **Session page** — the upload-result dashboard (tiles, hit-quality bars, top targets and attackers, recent activity) has a stable URL, linked from My Uploads. Any logged-in member can open it.
@@ -27,9 +34,11 @@ A note on naming: the installable/importable package is `aa_pvetracker` (distrib
 
 ## Known limitations
 
-- **No live tracking yet.** This version only reads finished (or in-progress, but manually re-uploaded) log files. Sessions uploaded before the "same session" matching was added have no header time stored, so a re-upload of one of those logs is stored as a new session; delete the old one from My Uploads. A later release is planned around the browser File System Access API.
-- **No ESI wallet ingest, zKill feed, or Discord post yet.** A `Payout` table (character, time, type, amount, journal id) and a per-session `ship_type_id` are reserved and empty.
-- **Damage, payout ISK, and kill value stay separate.** This version only has the damage and rep columns.
+- **Near-live, not live.** The folder scanner re-uploads a growing log about once a minute while its tab is open; there's no line-by-line live view yet, and closing the tab stops scanning. A desktop watcher that doesn't need an open tab is planned.
+- Sessions uploaded before the "same session" matching was added have no header time stored, so a re-upload of one of those logs is stored as a new session; delete the old one from My Uploads.
+- **Only the combat log has DPS.** ESI has no combat or damage data. Payouts, rat counts, killmails and fleet rosters sit next to the Gamelog numbers. Damage, payout ISK, and kill value are never added together.
+- **Payouts lag up to an hour.** ESI caches the wallet journal for an hour, and the journal only goes back 30 days, so payouts from before a pilot connected their wallet (older than 30 days) can't be fetched.
+- **Killmails are mostly PvP.** Killing rats makes no killmail, so the kill columns don't reflect ratting; "Rats" (from bounty ticks) does. Killmail damage is only damage on killmails.
 - **`reps_given_total` is an estimate.** The regex for a logi pilot's own *outgoing* remote-repair line was written by mirroring the incoming-rep line shape, since a real logi pilot's log was not available to test against. If the numbers look off, open an issue with a sample line (amounts and names redacted is fine).
 - **Trust model**: a log's *character* has to be one you own via Alliance Auth, but the *numbers in it* are still whatever that client wrote to disk.
 
@@ -44,10 +53,10 @@ A note on naming: the installable/importable package is `aa_pvetracker` (distrib
 1. Install the package:
 
    ```bash
-   pip install aa-pvetracker
+   pip install aa-pilotstats
    ```
 
-2. Add `"aa_pvetracker"` to `INSTALLED_APPS` in your Alliance Auth settings file (e.g. `local.py`).
+2. Add `"aa_pilotstats"` to `INSTALLED_APPS` in your Alliance Auth settings file (e.g. `local.py`).
 
 3. Rebuild the image, run migrations, and collect static files:
 
@@ -57,7 +66,93 @@ A note on naming: the installable/importable package is `aa_pvetracker` (distrib
    docker compose up -d
    ```
 
-4. Grant `pvetracker.basic_access` to the group(s) that should upload and delete logs. Viewing does not need it: any logged-in member can open the leaderboard, sessions, and events.
+4. Grant `pilotstats.basic_access` to the group(s) that should upload and delete logs. Viewing does not need it: any logged-in member can open the leaderboard, sessions, and events.
+
+5. Schedule the background tasks in `local.py`:
+
+   ```python
+   from celery.schedules import crontab
+
+   CELERYBEAT_SCHEDULE["pilotstats_pull_wallet_journals"] = {
+       "task": "aa_pilotstats.tasks.pull_all_wallet_journals",
+       "schedule": crontab(minute="7"),  # hourly; ESI caches the journal for an hour
+   }
+   CELERYBEAT_SCHEDULE["pilotstats_drain_r2z2"] = {
+       "task": "aa_pilotstats.tasks.drain_r2z2",
+       "schedule": crontab(minute="*"),  # zKill killmails, every minute
+   }
+   CELERYBEAT_SCHEDULE["pilotstats_poll_tracked_fleets"] = {
+       "task": "aa_pilotstats.tasks.poll_tracked_fleets",
+       "schedule": crontab(minute="*"),  # fleet rosters, every minute (idle when none tracked)
+   }
+   CELERYBEAT_SCHEDULE["pilotstats_purge_old_payouts"] = {
+       "task": "aa_pilotstats.tasks.purge_old_payouts",
+       "schedule": crontab(minute="23", hour="4"),
+   }
+   ```
+
+   Skip a task to turn its source off. The Gamelog features don't need any of them.
+
+## Data sources
+
+| Source | What it adds | How it's collected | Needs |
+|---|---|---|---|
+| Gamelog | DPS, hit quality, reps | Upload, drag-and-drop, or the folder scanner | `pilotstats.basic_access` |
+| ESI wallet journal | Payout ISK (bounty, ESS, mission), rats killed | Hourly per character that connected its wallet | Optional per pilot: `esi-wallet.read_character_wallet.v1` |
+| zKillboard R2Z2 | Kills, losses, ISK destroyed/lost, killmail damage | Every minute from zKill's public feed | Nothing from pilots |
+| ESI fleet | Who was in a fleet, hull, combat-log coverage | Every minute while a fleet is tracked | Optional, fleet boss only: `esi-fleets.read_fleet.v1` |
+
+**What's stored, and what isn't:**
+- **Wallet:**
+  - Kept: character, time, type, amount and journal id for bounty, ESS and mission payout lines only. For bounty ticks, the per-NPC-type kill counts are derived from the line.
+  - Never stored: balance, other transactions, `*_tax` lines, the other party, or the line's raw text.
+  - Itemized lines are kept for 35 days; daily totals for longer.
+  - A pilot can untick their wallet any time ("Don't read my wallet" on Events), which also deletes what was stored.
+- **zKill:** a mail is kept only when one of your Auth characters in a tracked corporation or alliance is on it, and only those characters are stored.
+  - By default, the corps and alliances of mains in the `Member` state are tracked.
+  - Edit the list under *Admin → Pilot Stats → tracked corporations and alliances*.
+- **Fleets:** pilot id, hull, and first and last time seen. Tracking stops by itself when the boss leaves or hands over the fleet.
+
+ESI calls use django-esi's client with a pinned compatibility date (`PILOTSTATS_ESI_COMPATIBILITY_DATE`) and its built-in ETag and rate-limit handling. Only the wallet journal, character fleet and fleet members routes are called.
+
+## Settings
+
+Optional, in `local.py`:
+
+| Setting | Default | What it does |
+|---|---|---|
+| `PILOTSTATS_SCANNER_UPLOADS_PER_MINUTE` | `30` | Most uploads one user's folder scanner (or multi-file drop) may send per minute. Over it, the server answers 429 and the scanner waits. `0` turns the limit off. The plain upload form is never limited. |
+| `PILOTSTATS_SCANNER_RECENT_DAYS` | `7` | The scanner only sends logs modified in the last N days unless "include older logs" is ticked. |
+| `PILOTSTATS_ESI_COMPATIBILITY_DATE` | `"2026-11-19"` | ESI compatibility date sent on every call. Bump it only after checking CCP's ESI changelog. |
+| `PILOTSTATS_PAYOUT_RETENTION_DAYS` | `35` | Days itemized payout lines are kept (daily totals are kept longer). |
+| `PILOTSTATS_SESSION_LINK_MINUTES` | `15` | How far before and after a session payouts, kills and fleet hulls are matched to it. |
+| `PILOTSTATS_ZKILL_AUTO_STATES` | `["Member"]` | Auth states whose mains' corporations and alliances are tracked on zKill automatically. |
+| `PILOTSTATS_R2Z2_MAX_PER_RUN` | `300` | zKill sequence files read per run of `drain_r2z2`. |
+| `PILOTSTATS_R2Z2_REQUEST_INTERVAL` | `0.15` | Seconds between zKill requests (their limit is 15 a second per IP). |
+| `PILOTSTATS_USER_AGENT` | `aa-pilotstats/<version> (+repo URL)` | User-Agent for zKill and the SDE. zKill asks for a real one; you can add your site's contact. |
+
+## Upgrading from PvE Tracker
+
+Pilot Stats takes over a PvE Tracker install in place. Its first migration renames the `pvetracker_*` tables to `pilotstats_*` with every row, moves the permission so existing `basic_access` group grants keep working, and removes PvE Tracker's migration history. The database index and constraint names keep their old `pvetracker_` prefix; that's expected.
+
+1. Back up the database.
+2. Swap the package:
+
+   ```bash
+   pip uninstall aa-pvetracker
+   pip install aa-pilotstats
+   ```
+
+   On Docker, change `aa-pvetracker` to `aa-pilotstats` in `conf/requirements.txt` and rebuild the image.
+3. In `local.py`, replace `"aa_pvetracker"` with `"aa_pilotstats"` in `INSTALLED_APPS`. If both are listed, Auth refuses to start with check `pilotstats.E001`.
+4. Run migrations and collect static files, then restart Auth:
+
+   ```bash
+   auth migrate
+   auth collectstatic --noinput
+   ```
+
+Old links keep working: `/pvetracker/...` redirects permanently to `/pilotstats/...`.
 
 ## Development
 
@@ -68,15 +163,15 @@ python -m pip install "allianceauth==5.6.0"
 python -m pip install -e . --no-deps
 
 # no database: parser + roll-up helper
-python -m unittest aa_pvetracker.tests.test_parsing aa_pvetracker.tests.test_leaderboard
+python -m unittest aa_pilotstats.tests.test_parsing aa_pilotstats.tests.test_leaderboard
 
 # full suite, including views (Redis on localhost:6379)
-python manage.py test aa_pvetracker
+python manage.py test aa_pilotstats
 
 # migration matches the models:
-python manage.py makemigrations pvetracker --check --dry-run
+python manage.py makemigrations pilotstats --check --dry-run
 ```
 
 `settings_dev.py` is not a production settings file. Confirm the pages against your real Alliance Auth theme in the Auth container when you care about Bootswatch colors; the nested leaderboard detail table is styled with the app's own classes for that reason.
 
-GitHub Actions runs `python manage.py test aa_pvetracker` and the `makemigrations --check` step on Python 3.12 with Redis 7.4, against both the oldest supported Alliance Auth (5.0.0) and 5.6.0.
+GitHub Actions runs `python manage.py test aa_pilotstats` and the `makemigrations --check` step on Python 3.12 with Redis 7.4, against both the oldest supported Alliance Auth (5.0.0) and 5.6.0.

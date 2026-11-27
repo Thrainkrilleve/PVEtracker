@@ -1,5 +1,51 @@
 # Changelog
 
+## Unreleased
+
+Run `migrate` (adds `0002_esi_zkill_fleets`) and add the new beat tasks from the README.
+
+- **Wallet payouts (optional per pilot).**
+  - Pilots can connect a character's wallet (`esi-wallet.read_character_wallet.v1`). An hourly task stores bounty, ESS and mission payout lines, nothing else, and adds a **Payout ISK** column (with a per-type breakdown) to the leaderboard.
+  - Bounty ticks also give **rats killed** per NPC type.
+  - A "Don't read my wallet" checkbox on Events stops reading and deletes what was stored.
+- **zKillboard kills and losses** from the R2Z2 feed, every minute.
+  - New columns: Kills / Losses, ISK destroyed / lost, and killmail damage. Events lists recent kills and losses.
+  - Mails are kept for tracked corps and alliances (by default those of Member-state mains; editable in admin) and only for Auth characters.
+  - A mail with two alts of one main counts once.
+- **Fleet tracking (optional, fleet boss).**
+  - The boss presses "Track my fleet" (`esi-fleets.read_fleet.v1`). The roster, the hulls, and how many Auth pilots uploaded a combat log are recorded every minute.
+  - Sessions flown in a tracked fleet show their hull.
+- **Session page**: "Around this session" tiles show payouts, rats killed, kills and losses, and the hull for that character and time (±15 min). They sit beside the combat-log numbers and are never added into them.
+- Dashboard widget adds 7-day payouts and kills.
+- The leaderboard now has rows for pilots with payouts or kills but no uploaded log.
+- Hull and NPC names come from the `eve_sde` app when installed, otherwise from CCP's SDE over HTTP, cached locally. Pages never wait on it.
+- New dependencies: `django-esi>=9.0` (already required by Alliance Auth) and `requests`. Works with django-esi 9.x and 10.x; CI tests both.
+
+- **Gamelog folder scanning** on the Upload page.
+  - In Chrome or Edge, pick the Gamelogs folder once. While the tab is open, new and grown logs upload every minute, and a growing log updates its session.
+  - Other browsers can scan a folder once.
+  - Only the user's own characters' logs leave the computer. Logs from the last 7 days go by default, and a checkbox includes older ones.
+- **Multi-file drop**: dropping several logs uploads each in turn, with a per-file result list. A single file still posts the form and shows its session dashboard.
+- The upload endpoint also answers JSON (`Accept: application/json`) with a result code (`created`, `updated`, `duplicate`, `no_new_lines`, `no_combat`, `not_gamelog`, `not_owned`, `other_account`, `too_large`). New `upload/characters.json` lists the user's characters for the scanner's local filter.
+- JSON uploads are limited per user (`PILOTSTATS_SCANNER_UPLOADS_PER_MINUTE`, default 30; 429 with `Retry-After`). The upload form is unchanged and unlimited.
+
+## v0.1.0 — renamed to Pilot Stats
+
+**PvE Tracker is now Pilot Stats.** Follow "Upgrading from PvE Tracker" in the README: swap `aa-pvetracker` for `aa-pilotstats`, replace `"aa_pvetracker"` with `"aa_pilotstats"` in `INSTALLED_APPS`, then `migrate` and `collectstatic`.
+
+| | Before | Now |
+|---|---|---|
+| Package | `aa-pvetracker` / `aa_pvetracker` | `aa-pilotstats` / `aa_pilotstats` |
+| Django label | `pvetracker` | `pilotstats` |
+| Permission | `pvetracker.basic_access` | `pilotstats.basic_access` |
+| URLs | `/pvetracker/…`, `pvetracker:` | `/pilotstats/…`, `pilotstats:` |
+
+- **Data and permissions carry over.** The new `0001_initial` renames the old tables in place with their rows, moves the content types so `basic_access` group grants keep working, renames the permission's display name, and removes PvE Tracker's migration rows. A fresh install just creates the tables.
+- Old `/pvetracker/…` links redirect permanently to `/pilotstats/…`, with the query string kept.
+- System check `pilotstats.E001` refuses to start while `aa_pvetracker` is still in `INSTALLED_APPS`.
+- Templates, static files, CSS classes (`.pstats-*`), and the dashboard panel moved to the new name. Database index and constraint names keep their `pvetracker_` prefix so upgraded tables match.
+- The PvE Tracker migrations 0001–0004 are replaced by the single Pilot Stats `0001_initial`.
+
 ## v0.0.11
 
 Run `migrate` after upgrading (adds migration `0004_combatlogupload_log_started`).

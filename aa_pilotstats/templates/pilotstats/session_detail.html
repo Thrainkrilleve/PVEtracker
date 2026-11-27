@@ -1,0 +1,77 @@
+{% extends 'pilotstats/base.html' %}
+{% load i18n pilotstats %}
+
+{% block pilotstats_content %}
+<p class="text-body-secondary small mb-3">
+    <a href="{% url 'pilotstats:leaderboard' %}">{% trans "Leaderboard" %}</a>
+    {% if perms.pilotstats.basic_access %}
+    · <a href="{% url 'pilotstats:my_uploads' %}">{% trans "My Uploads" %}</a>
+    {% endif %}
+</p>
+{% include "pilotstats/includes/session_dashboard.html" %}
+
+{% if linked %}
+<h2 class="h5 mt-4 mb-1">{% trans "Around this session" %}</h2>
+<p class="text-body-secondary small mb-2">
+    {% blocktrans trimmed with minutes=linked.window_minutes %}
+    From other sources, for this character from {{ minutes }} minutes before the session to
+    {{ minutes }} minutes after it. Shown next to the combat log's numbers, never added to them.
+    {% endblocktrans %}
+</p>
+<div class="pstats-link-grid mb-3">
+    <div class="pstats-panel bg-body-tertiary text-body">
+        <div class="pstats-panel-title text-body-secondary">{% trans "Payouts" %}</div>
+        {% if linked.payout_count %}
+        <div class="fs-5 pstats-col-isk">{{ linked.payout_total|isk }}</div>
+        <table class="pstats-mini-table mt-1"><tbody>
+            {% for entry_type, amount in linked.payouts_by_type %}
+            <tr><td>{{ linked.payout_labels|get_item:entry_type|default:entry_type }}</td><td class="pstats-amt">{{ amount|isk }}</td></tr>
+            {% endfor %}
+        </tbody></table>
+        {% else %}
+        <span class="text-body-secondary small">{% trans "None recorded (wallet not connected, or nothing paid out yet; ESI lags up to an hour)." %}</span>
+        {% endif %}
+    </div>
+    <div class="pstats-panel bg-body-tertiary text-body">
+        <div class="pstats-panel-title text-body-secondary">{% trans "Rats killed" %}</div>
+        {% if linked.rats %}
+        <div class="fs-5">{{ linked.rat_total }}</div>
+        <table class="pstats-mini-table mt-1"><tbody>
+            {% for type_id, count in linked.rats|slice:":8" %}
+            <tr><td>{{ type_id|type_name:linked.names }}</td><td class="pstats-amt">{{ count }}</td></tr>
+            {% endfor %}
+        </tbody></table>
+        {% else %}
+        <span class="text-body-secondary small">{% trans "No bounty ticks in this window." %}</span>
+        {% endif %}
+    </div>
+    <div class="pstats-panel bg-body-tertiary text-body">
+        <div class="pstats-panel-title text-body-secondary">{% trans "Kills / losses" %}</div>
+        {% for p in linked.kills %}
+        <div class="pstats-km-row kill">
+            <span class="pstats-km-what"><a href="{{ p.killmail.zkill_url }}" target="_blank" rel="noopener">{{ p.killmail.victim_ship_type_id|type_name:linked.names }}</a></span>
+            <span class="pstats-km-value">{{ p.killmail.total_value|isk }}</span>
+        </div>
+        {% endfor %}
+        {% for p in linked.losses %}
+        <div class="pstats-km-row loss">
+            <span class="pstats-km-what">{% trans "Lost" %} <a href="{{ p.killmail.zkill_url }}" target="_blank" rel="noopener">{{ p.killmail.victim_ship_type_id|type_name:linked.names }}</a></span>
+            <span class="pstats-km-value">{{ p.killmail.total_value|isk }}</span>
+        </div>
+        {% endfor %}
+        {% if not linked.kills and not linked.losses %}
+        <span class="text-body-secondary small">{% trans "No killmails in this window." %}</span>
+        {% endif %}
+    </div>
+    <div class="pstats-panel bg-body-tertiary text-body">
+        <div class="pstats-panel-title text-body-secondary">{% trans "Hull" %}</div>
+        {% if linked.hull %}
+        <div class="fs-5">{{ linked.hull|type_name:linked.names }}</div>
+        <span class="text-body-secondary small">{% trans "Seen by a tracked fleet." %}</span>
+        {% else %}
+        <span class="text-body-secondary small">{% trans "Unknown. Shown when the session was flown in a tracked fleet." %}</span>
+        {% endif %}
+    </div>
+</div>
+{% endif %}
+{% endblock %}

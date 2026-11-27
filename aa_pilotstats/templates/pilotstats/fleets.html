@@ -1,0 +1,56 @@
+{% extends 'pilotstats/base.html' %}
+{% load i18n %}
+
+{% block pilotstats_content %}
+<h1 class="mb-2">{% trans "Fleets" %}</h1>
+<p class="text-body-secondary">
+    {% blocktrans trimmed %}
+    The fleet boss can track a fleet: who's in it, in which hull, and how many of them uploaded a
+    combat log. It needs the boss's permission to read the fleet (an EVE login), and it stops by
+    itself when the boss leaves the fleet or hands boss to someone else.
+    {% endblocktrans %}
+</p>
+
+{% if messages %}
+{% for message in messages %}
+<div class="alert alert-{{ message.tags }}">{{ message }}</div>
+{% endfor %}
+{% endif %}
+
+<a href="{% url 'pilotstats:track_fleet' %}" class="btn btn-primary btn-sm mb-3">
+    <i class="fas fa-satellite-dish fa-fw"></i> {% trans "Track my fleet" %}
+</a>
+
+<div class="card bg-body-tertiary text-body">
+    <div class="card-body">
+        {% if fleets %}
+        <div class="pstats-table-scroll">
+        <table class="table table-hover align-middle mb-0">
+            <thead>
+                <tr>
+                    <th>{% trans "Boss" %}</th>
+                    <th>{% trans "Started" %}</th>
+                    <th class="text-end">{% trans "Pilots seen" %}</th>
+                    <th>{% trans "Status" %}</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for fleet in fleets %}
+                <tr>
+                    <td><a href="{% url 'pilotstats:fleet' fleet.pk %}">{{ fleet.boss.character_name }}</a></td>
+                    <td class="text-body-secondary small">{{ fleet.started_at }}</td>
+                    <td class="text-end">{{ fleet.pilots }}</td>
+                    <td class="small">
+                        {% if fleet.is_open %}<span class="badge text-bg-success">{% trans "tracking" %}</span>{% else %}<span class="text-body-secondary">{% trans "ended" %}</span>{% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        </div>
+        {% else %}
+        <p class="text-body-secondary mb-0">{% trans "No fleets tracked yet." %}</p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
