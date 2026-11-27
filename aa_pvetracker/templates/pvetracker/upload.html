@@ -16,7 +16,7 @@
 
 <form method="post" enctype="multipart/form-data" id="pvetracker-upload-form">
     {% csrf_token %}
-    <div id="pvetracker-dropzone" class="card mb-3">
+    <div id="pvetracker-dropzone" class="card bg-body-tertiary text-body mb-3">
         <div class="card-body text-center py-5">
             <i class="fas fa-cloud-upload-alt fa-2x mb-2 text-body-secondary"></i>
             <p class="mb-2">{% trans "Drag a Gamelog .txt file here" %}</p>

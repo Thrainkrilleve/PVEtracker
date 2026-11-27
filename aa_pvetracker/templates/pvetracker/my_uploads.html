@@ -5,7 +5,7 @@
 <h1 class="mb-3">{% trans "My Uploads" %}</h1>
 
 {% if last_session or rank %}
-<div class="pvet-summary mb-3">
+<div class="pvet-summary text-body-secondary mb-3">
     {% if last_session %}
     <span>
         {% trans "Last session" %}:
@@ -33,7 +33,7 @@
 </div>
 {% endif %}
 
-<div class="card">
+<div class="card bg-body-tertiary text-body">
     <div class="card-body">
         {% if uploads %}
         <div class="pvet-table-scroll">
