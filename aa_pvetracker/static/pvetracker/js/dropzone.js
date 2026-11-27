@@ -25,13 +25,27 @@
         });
     });
 
+    const note = document.getElementById("pvetracker-dropzone-note");
+
     dropzone.addEventListener("drop", (e) => {
         const files = e.dataTransfer.files;
-        if (files.length) {
-            input.files = files;
-            if (form) {
-                form.requestSubmit();
+        if (!files.length) {
+            return;
+        }
+        // The server reads one file per upload. Rather than silently drop the
+        // rest, refuse a multi-file drop and say why.
+        if (files.length > 1) {
+            if (note) {
+                note.hidden = false;
             }
+            return;
+        }
+        if (note) {
+            note.hidden = true;
+        }
+        input.files = files;
+        if (form) {
+            form.requestSubmit();
         }
     });
 })();

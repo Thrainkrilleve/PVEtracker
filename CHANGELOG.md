@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- **Alliance Auth 5 only.** Requires `allianceauth>=5.0.0,<6`. The migrations depended on an Auth migration (`eveonline` 0025) that only ships in Auth 5.1.4 and later, so `migrate` failed on Auth 4 and on early 5.x. They now depend on `eveonline` 0021 (in every 5.x release). Already-applied installs are unaffected.
+- **Re-uploading a growing log updates the same session** instead of adding a second one and double-counting the leaderboard. Sessions are keyed by character plus the log header's `Session Started:` time (new `log_started` field, migration 0004). A copy with no new combat lines is rejected, and a session uploaded by a different account is never overwritten. Sessions stored before this change have no header time and are left alone.
+- **Remote reps from faction / deadspace modules are counted.** The rep patterns rejected any module with a hyphen (`Centum A-Type …`, `Gist X-Type …`), so those reps were dropped entirely. Reps given was affected the same way.
+- **Player attackers no longer split per weapon** in Top Attackers; the weapon is read separately from the attacker name.
+- **7- and 30-day windows go by fight time**, not upload time, on the leaderboard, My Uploads rank, and dashboard widget. An old log uploaded today no longer counts as this week.
+- **Log times are stored as UTC (EVE time)** whatever the server's `TIME_ZONE` is.
+- Two uploads of the same log at the same moment show the "already uploaded" message instead of a server error.
+- Events orders lines by their own EVE date and time across sessions and shows the date. Feed rows now carry a `date`; older rows fall back to the session's date.
+- Dropping several files on the upload box shows "one file at a time" instead of silently ignoring all but one.
+- Leaderboard and list queries no longer load every session's JSON breakdowns, and the dashboard widget sums in the database.
+- The dev URL config mounts the app through its url hook with Auth's `main_character_required`, as a real Auth does, and the view tests log in users with a main. CI runs on Auth 5.0.0 and 5.6.0 and checks that migrations match the models.
 - Events, session cards, and the section nav stay readable on Alliance Auth's dark themes. Darkly leaves `--bs-tertiary-bg` light and never sets `data-bs-theme="dark"`, so those surfaces were white under white text. Surfaces use `bg-body-tertiary` / `text-body` / `text-body-secondary`, the active tab is a `nav-pills` pill on `--bs-primary`, and Darkly remaps tertiary to `--bs-dark`.
 - README now says v0.0.7, matching the package.
 - Leaderboard roll-up lives in `aa_pvetracker.leaderboard` so the site, the dashboard rank, and a later Discord post share one grouping. Extra numeric columns can be summed later without a second grouping.

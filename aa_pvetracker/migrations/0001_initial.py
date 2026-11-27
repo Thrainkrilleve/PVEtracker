@@ -11,7 +11,7 @@ class Migration(migrations.Migration):
     initial = True
 
     dependencies = [
-        ("eveonline", "0025_remove_evecharacter_last_updated_and_more"),
+        ("eveonline", "0021_alter_eveallianceinfo_options_and_more"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 

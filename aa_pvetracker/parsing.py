@@ -49,8 +49,12 @@ _QUALITIES = "Hits|Grazes|Wrecks|Penetrates|Glances Off|Smashes|Misses"
 _DAMAGE_OUT_RE = re.compile(
     rf"^(?P<amount>\d+)\s+to\s+(?P<target>.+?)\s+-\s+(?P<weapon>.+?)\s+-\s+(?P<quality>{_QUALITIES})$"
 )
+# NPC lines are "<amt> from <attacker> - <quality>". Player lines add the
+# weapon: "<amt> from <pilot>[TICKER](Ship) - <weapon> - <quality>". The
+# optional weapon group keeps the weapon out of the attacker name, so one
+# player doesn't split into a row per weapon in Top Attackers.
 _DAMAGE_IN_RE = re.compile(
-    rf"^(?P<amount>\d+)\s+from\s+(?P<attacker>.+?)\s+-\s+(?P<quality>{_QUALITIES})$"
+    rf"^(?P<amount>\d+)\s+from\s+(?P<attacker>.+?)(?:\s+-\s+(?P<weapon>.+?))?\s+-\s+(?P<quality>{_QUALITIES})$"
 )
 _MISS_OUT_RE = re.compile(
     r"^Your (?:group of )?(?P<weapon>.+?) misses (?P<target>.+?) completely(?:\s+-\s+.+)?$"
@@ -58,12 +62,17 @@ _MISS_OUT_RE = re.compile(
 _MISS_IN_RE = re.compile(r"^(?P<attacker>.+?) misses you completely$")
 _JAMMED_RE = re.compile(r"^You're jammed by (?P<attacker>.+?)\s+-\s+.+$")
 _REMOTE_REP_KINDS = "armor repaired|shield boosted|capacitor transmitted"
+# The healer / recipient part is "Pilot [TICKER]<ALLY> - Ship "Name"", so it
+# contains a spaced " - " itself; the module is the last " - " segment. Module
+# names can still contain unspaced hyphens (faction / deadspace "A-Type",
+# "X-Type"), so the module excludes only the spaced separator, not "-".
+_LAST_SEGMENT = r"(?:(?!\s-\s).)+"
 _REMOTE_REP_IN_RE = re.compile(
-    rf"^(?P<amount>\d+)\s+remote (?P<kind>{_REMOTE_REP_KINDS})\s+by\s+(?P<healer>.+)\s+-\s+(?P<module>[^-]+)$"
+    rf"^(?P<amount>\d+)\s+remote (?P<kind>{_REMOTE_REP_KINDS})\s+by\s+(?P<healer>.+)\s+-\s+(?P<module>{_LAST_SEGMENT})$"
 )
 # Unverified — see module docstring.
 _REMOTE_REP_OUT_RE = re.compile(
-    rf"^(?P<amount>\d+)\s+remote (?P<kind>{_REMOTE_REP_KINDS})\s+to\s+(?P<recipient>.+)\s+-\s+(?P<module>[^-]+)$"
+    rf"^(?P<amount>\d+)\s+remote (?P<kind>{_REMOTE_REP_KINDS})\s+to\s+(?P<recipient>.+)\s+-\s+(?P<module>{_LAST_SEGMENT})$"
 )
 _ENERGY_NEUT_RE = re.compile(r"^(?P<amount>\d+)\s*GJ\s+energy neutralized\s+(?P<target>.+?)\s+-\s+.+$")
 
@@ -117,7 +126,7 @@ def parse_combat_message(ts: datetime, msg: str, stats: Optional[ParseStats] = N
     m = _DAMAGE_IN_RE.match(clean)
     if m:
         return CombatEvent(ts, "damage_in", int(m.group("amount")), m.group("attacker"),
-                            "", m.group("quality"), clean)
+                            m.group("weapon") or "", m.group("quality"), clean)
 
     m = _MISS_OUT_RE.match(clean)
     if m:
@@ -181,6 +190,16 @@ def read_header_from_lines(lines: Iterable[str]) -> dict:
     return info
 
 
+def parse_header_timestamp(value: Optional[str]) -> Optional[datetime]:
+    """Parse a header 'Session Started:' value (EVE time, UTC). None when unreadable."""
+    if not value:
+        return None
+    try:
+        return datetime.strptime(value.strip(), "%Y.%m.%d %H:%M:%S")
+    except ValueError:
+        return None
+
+
 def summarize(events: Iterable[CombatEvent]) -> dict:
     """Reduce a stream of CombatEvents to a plain, JSON/model-field-ready dict.
 
@@ -209,6 +228,7 @@ def summarize(events: Iterable[CombatEvent]) -> dict:
 
         if e.kind in FEED_KINDS:
             feed.append({
+                "date": e.timestamp.strftime("%Y-%m-%d"),
                 "ts": e.timestamp.strftime("%H:%M:%S"),
                 "kind": e.kind,
                 "amount": e.amount,

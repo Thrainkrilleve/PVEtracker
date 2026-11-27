@@ -22,6 +22,9 @@
             <p class="mb-2">{% trans "Drag a Gamelog .txt file here" %}</p>
             <p class="text-body-secondary small mb-2">{% trans "or" %}</p>
             {{ form.log_file }}
+            <p id="pvetracker-dropzone-note" class="text-warning small mt-2 mb-0" hidden>
+                {% trans "Drop one log file at a time." %}
+            </p>
         </div>
     </div>
     <button type="submit" class="btn btn-primary">{% trans "Upload" %}</button>

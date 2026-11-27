@@ -182,6 +182,11 @@
     color: var(--bs-secondary-color);
 }
 
+.pvet-feed-row .pvet-feed-ts.with-date {
+    width: 7.5rem;
+    font-variant-numeric: tabular-nums;
+}
+
 .pvet-feed-row .pvet-feed-amt {
     width: 4.5rem;
     flex-shrink: 0;

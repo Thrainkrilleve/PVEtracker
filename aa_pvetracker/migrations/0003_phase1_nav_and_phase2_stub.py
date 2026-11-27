@@ -8,7 +8,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('eveonline', '0025_remove_evecharacter_last_updated_and_more'),
+        ('eveonline', '0021_alter_eveallianceinfo_options_and_more'),
         ('pvetracker', '0002_combatlogupload_feed'),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]

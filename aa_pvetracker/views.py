@@ -12,20 +12,29 @@ events           — recent activity from stored sessions, plus the feed opt-out
 # Standard Library
 import hashlib
 import logging
-from datetime import timedelta
+from datetime import timezone as dt_timezone
 
 # Django
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required, permission_required
+from django.db import IntegrityError, transaction
+from django.db.models import Count, Sum
+from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
 from .forms import LiveFeedOptOutForm, LogUploadForm
-from .leaderboard import leaderboard_rows, normalize_sort_key, rank_of
+from .leaderboard import DETAIL_FIELDS, leaderboard_rows, normalize_sort_key, rank_of, within_days
 from .models import CombatLogUpload, PilotSettings
-from .parsing import ParseStats, iter_events_from_lines, read_header_from_lines, summarize
+from .parsing import (
+    ParseStats,
+    iter_events_from_lines,
+    parse_header_timestamp,
+    read_header_from_lines,
+    summarize,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -46,11 +55,12 @@ def _owned_characters(user) -> dict:
     }
 
 
-def _make_aware(dt):
+def _eve_time(dt):
+    """Gamelog timestamps are EVE time, which is UTC — not the server's TIME_ZONE."""
     if dt is None:
         return None
     if timezone.is_naive(dt):
-        return timezone.make_aware(dt, timezone.get_default_timezone())
+        return dt.replace(tzinfo=dt_timezone.utc)
     return dt
 
 
@@ -144,12 +154,12 @@ def _handle_upload(request, uploaded_file):
         return None
 
     summary = summarize(events)
+    log_started = _eve_time(parse_header_timestamp(header.get("session_started")))
 
-    log_upload = CombatLogUpload.objects.create(
-        character=character,
+    values = dict(
         uploaded_by=request.user,
-        session_started=_make_aware(summary["session_started"]),
-        session_ended=_make_aware(summary["session_ended"]),
+        session_started=_eve_time(summary["session_started"]),
+        session_ended=_eve_time(summary["session_ended"]),
         source_filename=uploaded_file.name,
         file_hash=file_hash,
         damage_out=summary["damage_out"],
@@ -168,8 +178,61 @@ def _handle_upload(request, uploaded_file):
         combat_lines=stats.combat_lines,
         matched_lines=stats.matched,
     )
-    messages.success(request, _("Uploaded and parsed — %(n)d combat lines scored.") % {"n": stats.matched})
-    return log_upload
+
+    try:
+        with transaction.atomic():
+            existing = None
+            if log_started is not None:
+                existing = (
+                    CombatLogUpload.objects.select_for_update()
+                    .filter(character=character, log_started=log_started)
+                    .first()
+                )
+            if existing is None:
+                log_upload = CombatLogUpload.objects.create(
+                    character=character, log_started=log_started, **values
+                )
+                messages.success(
+                    request,
+                    _("Uploaded and parsed — %(n)d combat lines scored.") % {"n": stats.matched},
+                )
+                return log_upload
+            return _update_existing_session(request, existing, values)
+    except IntegrityError:
+        # Two uploads of the same file (or the same log) raced each other; the
+        # other one won. Same outcome as the duplicate checks above.
+        messages.warning(request, _("This log has already been uploaded."))
+        return None
+
+
+def _update_existing_session(request, existing, values):
+    """
+    A log the server already has a session for (same character and header
+    start). The EVE client appends to one file for the whole client session,
+    so a longer copy replaces the stored totals instead of being counted twice.
+    """
+    if existing.uploaded_by_id != request.user.id:
+        messages.error(
+            request,
+            _("Another Alliance Auth account already uploaded this character's log for that session."),
+        )
+        return None
+    if values["combat_lines"] <= existing.combat_lines:
+        messages.warning(
+            request,
+            _("This session is already stored, and this copy of the log has no new combat lines."),
+        )
+        return None
+
+    added = values["combat_lines"] - existing.combat_lines
+    for field, value in values.items():
+        setattr(existing, field, value)
+    existing.save()
+    messages.success(
+        request,
+        _("Updated your existing session for this log — %(n)d new combat lines.") % {"n": added},
+    )
+    return existing
 
 
 # ---------------------------------------------------------------------------
@@ -196,7 +259,11 @@ def session_detail(request, pk):
 
 
 def _my_uploads_context(user, confirm_delete=None):
-    uploads = CombatLogUpload.objects.filter(uploaded_by=user).select_related("character")
+    uploads = (
+        CombatLogUpload.objects.filter(uploaded_by=user)
+        .select_related("character")
+        .defer(*DETAIL_FIELDS)
+    )
     rows = leaderboard_rows("30d", "damage_out")
     return {
         "uploads": uploads,
@@ -237,17 +304,37 @@ def _feed_opt_out(user) -> bool:
     return bool(settings_obj and settings_obj.hide_from_live_feed)
 
 
+def _session_date(upload) -> str:
+    """UTC date for feed rows stored before they carried one."""
+    when = upload.session_started or upload.uploaded_at
+    return when.astimezone(dt_timezone.utc).strftime("%Y-%m-%d") if when else ""
+
+
 def _recent_feed_rows():
+    """
+    Most recent lines across the latest sessions, newest first by fight time.
+
+    Sessions are picked by when they were flown (an old log uploaded today
+    doesn't jump the queue), and lines are ordered by their own EVE date and
+    time, so lines from different sessions and days interleave correctly.
+    """
     hidden_ids = PilotSettings.objects.filter(hide_from_live_feed=True).values("user_id")
     uploads = (
         CombatLogUpload.objects.exclude(uploaded_by_id__in=hidden_ids)
         .select_related("character")
-        .order_by("-uploaded_at")[:EVENTS_SESSION_LIMIT]
+        .only(
+            "feed", "session_started", "session_ended", "uploaded_at",
+            "character__character_name",
+        )
+        .annotate(flown_until=Coalesce("session_ended", "uploaded_at"))
+        .order_by("-flown_until", "-pk")[:EVENTS_SESSION_LIMIT]
     )
     rows = []
     for upload in uploads:
+        fallback_date = _session_date(upload)
         for item in (upload.feed or [])[:EVENTS_PER_SESSION]:
             rows.append({
+                "date": item.get("date") or fallback_date,
                 "ts": item.get("ts", ""),
                 "kind": item.get("kind", ""),
                 "amount": item.get("amount", ""),
@@ -256,9 +343,8 @@ def _recent_feed_rows():
                 "character_name": upload.character.character_name,
                 "session_id": upload.pk,
             })
-            if len(rows) >= EVENTS_ROW_LIMIT:
-                return rows
-    return rows
+    rows.sort(key=lambda row: (row["date"], row["ts"]), reverse=True)
+    return rows[:EVENTS_ROW_LIMIT]
 
 
 @login_required
@@ -299,22 +385,26 @@ def pvetracker_dashboard(request) -> str:
         return ""
 
     user = request.user
-    cutoff = timezone.now() - timedelta(days=7)
     # Filter on the character row, not EveCharacter.character_id. On Auth 5
     # the EVE id is no longer the primary key, so comparing it to the FK
     # column misses every upload.
     owned = list(_owned_characters(user).values())
-    recent = CombatLogUpload.objects.filter(character__in=owned, uploaded_at__gte=cutoff)
+    totals = within_days(CombatLogUpload.objects.filter(character__in=owned), 7).aggregate(
+        damage_out=Sum("damage_out"),
+        reps_given=Sum("reps_given_total"),
+        upload_count=Count("id"),
+    )
     last = (
         CombatLogUpload.objects.filter(character__in=owned)
         .select_related("character")
+        .defer(*DETAIL_FIELDS)
         .first()
     )
     rows = leaderboard_rows("7d", "damage_out")
     return render_to_string("pvetracker/dashboard_widget.html", {
-        "damage_out": sum(u.damage_out for u in recent),
-        "reps_given": sum(u.reps_given_total for u in recent),
-        "upload_count": recent.count(),
+        "damage_out": totals["damage_out"] or 0,
+        "reps_given": totals["reps_given"] or 0,
+        "upload_count": totals["upload_count"],
         "last_session": last,
         "rank": rank_of(rows, user),
         "can_upload": user.has_perm("pvetracker.basic_access"),
