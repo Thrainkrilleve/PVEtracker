@@ -24,6 +24,11 @@ Run `migrate` (adds `0004_combatlogupload_payout_isk` and `0005_combatlogupload_
   - **How it's counted:** rates are weighted by time and skip sessions under 10 minutes, like ISK per hour elsewhere. Payouts and rats come from the wallet and need it connected. Only the pilot's own data is shown.
 - New [roadmap](ROADMAP.md) with the planned work: session DPS chart, personal trends, activity types, corp totals, MariaDB CI, leaderboard caching, and AA Desktop upload.
 
+## v0.1.1
+
+- **Discord settings: a "Save and send a test message" button** next to Save. It saves the form, then posts a test message, so a newly pasted webhook can be checked in one click. Before, the test was an admin action on the list page that was easy to miss.
+- *Admin → Pilot Stats → Discord settings* opens the settings directly instead of a one-row list (or the add form, the first time).
+
 ## v0.1.0 — Pilot Stats
 
 The first release on PyPI as `aa-pilotstats`. PvE Tracker is renamed to Pilot Stats, Gamelog uploads can be automated, and payouts, killmails, fleets and a Discord feed join the combat logs.
