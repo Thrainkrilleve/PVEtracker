@@ -145,6 +145,15 @@ class CombatLogUpload(models.Model):
             "Empty until a source reports it."
         ),
     )
+    timeline = models.JSONField(
+        _("timeline"),
+        default=dict,
+        blank=True,
+        help_text=_(
+            "Damage and reps per time bucket for the session chart (parsing.build_timeline). "
+            "Empty for sessions uploaded before charts existed."
+        ),
+    )
     payout_isk = models.DecimalField(
         _("payout ISK earned"),
         max_digits=20,

@@ -263,7 +263,13 @@ def _process_upload(user, uploaded_file) -> UploadResult:
     raw = uploaded_file.read()
     file_hash = hashlib.sha256(raw).hexdigest()
 
-    if CombatLogUpload.objects.filter(file_hash=file_hash).exists():
+    duplicate = (
+        CombatLogUpload.objects.filter(file_hash=file_hash)
+        .only("pk", "uploaded_by_id", "timeline").first()
+    )
+    if duplicate is not None:
+        if duplicate.uploaded_by_id == user.id and not duplicate.timeline:
+            return _add_timeline(duplicate, raw)
         return UploadResult(
             "duplicate", messages.WARNING, _("This exact file has already been uploaded."),
         )
@@ -321,6 +327,7 @@ def _process_upload(user, uploaded_file) -> UploadResult:
         reps_by_healer=summary["reps_by_healer"],
         reps_by_recipient=summary["reps_by_recipient"],
         feed=summary["feed"],
+        timeline=summary["timeline"],
         combat_lines=stats.combat_lines,
         matched_lines=stats.matched,
     )
@@ -352,6 +359,19 @@ def _process_upload(user, uploaded_file) -> UploadResult:
         return UploadResult(
             "duplicate", messages.WARNING, _("This log has already been uploaded."),
         )
+
+
+def _add_timeline(session, raw: bytes) -> UploadResult:
+    """The same file again, for a session stored before charts existed: add its chart."""
+    lines = raw.decode("utf-8", errors="replace").splitlines(keepends=True)
+    session.timeline = summarize(iter_events_from_lines(lines))["timeline"]
+    session.save(update_fields=["timeline"])
+    return UploadResult(
+        "updated", messages.SUCCESS,
+        _("This log was already uploaded; added the damage chart to its session."),
+        session=CombatLogUpload.objects.get(pk=session.pk),
+        new_lines=0,
+    )
 
 
 def _match_payouts(session) -> None:
