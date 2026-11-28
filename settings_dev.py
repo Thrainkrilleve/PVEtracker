@@ -1,3 +1,6 @@
+# Standard Library
+from importlib.util import find_spec
+
 # Minimal Django settings for running management commands / tests locally.
 # Not used in production — the Alliance Auth install has its own settings.
 #
@@ -135,3 +138,17 @@ current_app.conf.broker_transport_options = {
     "priority_steps": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
     "queue_order_strategy": "priority",
 }
+
+# AA Desktop's bridge is optional and not on PyPI yet. When it is installed
+# (as in aa-desktop's CI), turn it on so aa_pilotstats/tests/test_desktop.py
+# runs; otherwise those tests skip and nothing here changes.
+if find_spec("aa_desktop_bridge") is not None:
+    INSTALLED_APPS += ["oauth2_provider", "aa_desktop_bridge"]
+    OAUTH2_PROVIDER = {
+        "PKCE_REQUIRED": True,
+        "SCOPES": {
+            "openid": "OpenID Connect",
+            "desktop.core": "AA Desktop",
+            "desktop.pilotstats.upload": "Upload combat logs from AA Desktop",
+        },
+    }

@@ -36,6 +36,8 @@ Run `migrate` (adds `0004_combatlogupload_payout_isk`, `0005_combatlogupload_tim
   - **Details:** each group expands to its members. Pilots without a main go into an "Unknown" group at the bottom.
 - **CSV export** of whatever the leaderboard shows: pilots (with corporation and alliance), corporations or alliances, for the chosen range and activity. Names that start like a spreadsheet formula are quoted so they can't run as one.
 - New [roadmap](ROADMAP.md) with the planned work: session DPS chart, personal trends, activity types, corp totals, MariaDB CI, leaderboard caching, and AA Desktop upload.
+- **Automatic upload with AA Desktop.** When the optional `aa-desktop-bridge` plugin is installed, Pilot Stats registers a desktop module with two routes under `/api/desktop/v1/modules/pilotstats/`: `POST upload` and `GET characters`. Each needs a bearer token with the `desktop.pilotstats.upload` scope and the `pilotstats.basic_access` permission. Uploads use the folder scanner's code, results and per-user limit. Setup is in the README under "Automatic upload with AA Desktop". Without the bridge nothing changes.
+- The JSON upload path is now one function, `views.upload_json`, shared by the folder scanner, multi-file drop and AA Desktop. Behavior is unchanged.
 
 ## v0.1.1
 
