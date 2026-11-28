@@ -31,9 +31,13 @@ FLEET_SCOPE = "esi-fleets.read_fleet.v1"
 # window so a journal id is never seen twice; daily totals are kept forever.
 PAYOUT_RETENTION_DAYS = int(getattr(settings, "PILOTSTATS_PAYOUT_RETENTION_DAYS", 35))
 
-# Payouts, kills, and fleet hulls are matched to a Gamelog session when they
-# fall within this many minutes of it.
+# Kills and fleet hulls are matched to a Gamelog session when they fall
+# within this many minutes of it. Payouts use PAYOUT_TAIL_MINUTES below.
 SESSION_LINK_MINUTES = int(getattr(settings, "PILOTSTATS_SESSION_LINK_MINUTES", 15))
+
+# ISK per hour: bounties are paid in ticks every 20 minutes, so a payout up to
+# this long after a session's last combat line still belongs to it.
+PAYOUT_TAIL_MINUTES = int(getattr(settings, "PILOTSTATS_PAYOUT_TAIL_MINUTES", 20))
 
 # zKillboard R2Z2 ---------------------------------------------------------------
 

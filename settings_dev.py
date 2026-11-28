@@ -8,6 +8,8 @@ from importlib.util import find_spec
 # system checks. They are placeholders. Nothing here is a real credential,
 # and every URL is example.com.
 
+import os
+
 from celery import current_app
 
 SECRET_KEY = "dev-only-not-for-production"
@@ -60,6 +62,24 @@ DATABASES = {
         "NAME": ":memory:",
     }
 }
+
+# Real Alliance Auth sites run MariaDB or MySQL. Set PILOTSTATS_TEST_DB=mysql
+# (CI does, with a MariaDB service) to run the tests there instead of SQLite.
+# The defaults match a throwaway local server; nothing here is a real login.
+if os.environ.get("PILOTSTATS_TEST_DB") == "mysql":
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.mysql",
+            "NAME": os.environ.get("PILOTSTATS_DB_NAME", "pilotstats"),
+            "USER": os.environ.get("PILOTSTATS_DB_USER", "root"),
+            "PASSWORD": os.environ.get("PILOTSTATS_DB_PASSWORD", "example-test-password"),
+            "HOST": os.environ.get("PILOTSTATS_DB_HOST", "127.0.0.1"),
+            "PORT": os.environ.get("PILOTSTATS_DB_PORT", "3306"),
+            # What Alliance Auth's install guide sets up.
+            "OPTIONS": {"charset": "utf8mb4"},
+            "TEST": {"CHARSET": "utf8mb4", "COLLATION": "utf8mb4_unicode_ci"},
+        }
+    }
 
 DEFAULT_AUTO_FIELD = "django.db.models.AutoField"
 

@@ -1,7 +1,10 @@
-{% load i18n %}
+{% load i18n static %}
 <div class="d-flex justify-content-between align-items-baseline mb-2 flex-wrap gap-2">
     <div>
-        <h2 class="mb-0">{{ session.character.character_name }}</h2>
+        <h2 class="mb-0">
+            {{ session.character.character_name }}
+            {% if session.activity %}<span class="badge text-bg-secondary align-middle fs-6 fw-normal" title="{% trans 'From the wallet and the NPCs shot' %}">{{ session.get_activity_display }}</span>{% endif %}
+        </h2>
         <span class="text-body-secondary small">
             {% if session.session_started and session.session_ended %}
             {{ session.duration_display }} {% trans "session" %} &middot;
@@ -35,6 +38,34 @@
         <div class="pstats-stat-value">{{ session.reps_given_total }}</div>
         <div class="pstats-stat-foot text-body-secondary">{% trans "estimated" %}</div>
     </div>
+</div>
+
+<div class="pstats-panel bg-body-tertiary text-body mb-3">
+    <div class="pstats-panel-title text-body-secondary">{% trans "Damage and reps over time" %}</div>
+    {% if session.timeline %}
+    <div class="pstats-chart-wrap"
+         data-label-out="{% trans 'Damage dealt' %}"
+         data-label-in="{% trans 'Damage received' %}"
+         data-label-rep-in="{% trans 'Reps received' %}"
+         data-label-rep-out="{% trans 'Reps given' %}"
+         data-label-axis="{% trans 'per second' %}"
+         data-unavailable="{% trans 'The chart library could not load (blocked or offline).' %}">
+        <canvas id="pstats-timeline-chart" role="img" aria-label="{% trans 'Damage and reps per second over the session' %}"></canvas>
+    </div>
+    <p class="text-body-secondary small mb-0 mt-1">
+        {% widthratio session.timeline.bucket 60 1 as bucket_minutes %}
+        {% blocktrans trimmed with minutes=bucket_minutes %}
+        Per second, averaged over {{ minutes }}-minute steps. Times are EVE time.
+        {% endblocktrans %}
+    </p>
+    {{ session.timeline|json_script:"pstats-timeline-data" }}
+    {% include "bundles/chart-js.html" %}
+    <script src="{% static 'pilotstats/js/session_chart.js' %}" defer></script>
+    {% else %}
+    <span class="text-body-secondary small">
+        {% trans "No chart for this session: it was uploaded before charts were added. Upload the same log file again to add one." %}
+    </span>
+    {% endif %}
 </div>
 
 <div class="row g-3 mb-3">

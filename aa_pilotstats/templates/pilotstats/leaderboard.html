@@ -5,23 +5,49 @@
 <h1 class="mb-3">{% trans "Fleet Leaderboard" %}</h1>
 
 <div class="btn-toolbar mb-3 gap-2 flex-wrap" role="toolbar">
+    <div class="btn-group btn-group-sm" role="group" aria-label="{% trans 'Group by' %}">
+        {% for key, text in group_choices %}
+        <a href="?range={{ range_key }}&sort={{ sort_key }}&activity={{ activity }}&group={{ key }}"
+           class="btn btn-outline-secondary {% if group == key %}active{% endif %}">{{ text }}</a>
+        {% endfor %}
+    </div>
     <div class="btn-group btn-group-sm" role="group">
         {% for key, text in ranges %}
-        <a href="?range={{ key }}&sort={{ sort_key }}"
+        <a href="?range={{ key }}&sort={{ sort_key }}&activity={{ activity }}&group={{ group }}"
            class="btn btn-outline-secondary {% if range_key == key %}active{% endif %}">{{ text }}</a>
+        {% endfor %}
+    </div>
+    <div class="btn-group btn-group-sm flex-wrap" role="group" aria-label="{% trans 'Activity' %}">
+        {% for key, text in activities %}
+        <a href="?range={{ range_key }}&sort={{ sort_key }}&activity={{ key }}&group={{ group }}"
+           class="btn btn-outline-secondary {% if activity == key %}active{% endif %}">{{ text }}</a>
         {% endfor %}
     </div>
     {% for group_name, sorts in sort_groups %}
     <div class="btn-group btn-group-sm" role="group" aria-label="{{ group_name }}">
         <span class="btn btn-sm disabled text-body-secondary pstats-sort-label">{{ group_name }}</span>
         {% for key, text in sorts %}
-        <a href="?range={{ range_key }}&sort={{ key }}"
+        <a href="?range={{ range_key }}&sort={{ key }}&activity={{ activity }}&group={{ group }}"
            class="btn btn-outline-secondary {% if sort_key == key %}active{% endif %}">{{ text }}</a>
         {% endfor %}
     </div>
     {% endfor %}
 </div>
 
+{% if activity %}
+<p class="text-body-secondary small mb-2">
+    {% trans "Only sessions of this activity. Payouts, rats and killmails can't be split by activity, so those columns are hidden; ISK/h is from these sessions." %}
+</p>
+{% endif %}
+<div class="d-flex justify-content-end mb-2">
+    <a class="btn btn-sm btn-outline-secondary"
+       href="?range={{ range_key }}&sort={{ sort_key }}&activity={{ activity }}&group={{ group }}&format=csv">
+        <i class="fas fa-file-csv"></i> {% trans "Download CSV" %}
+    </a>
+</div>
+{% if groups is not None %}
+{% include "pilotstats/includes/leaderboard_groups.html" %}
+{% else %}
 <div class="card bg-body-tertiary text-body">
     <div class="card-body">
         {% if rows %}
@@ -34,11 +60,16 @@
                     <th class="text-end">{% trans "Damage Received" %}</th>
                     <th class="text-end">{% trans "Reps Received" %}</th>
                     <th class="text-end">{% trans "Reps Given" %}</th>
+                    {% if not activity %}
                     <th class="text-end pstats-col-sep" title="{% trans 'Bounty, ESS and mission payouts from the wallet journal' %}">{% trans "Payout ISK" %}</th>
+                    {% endif %}
+                    <th class="text-end{% if activity %} pstats-col-sep{% endif %}" title="{% trans 'Bounty and mission payouts earned during logged sessions, per hour of those sessions (sessions of 10 minutes or more; ESS escrow not included)' %}">{% trans "ISK/h" %}</th>
+                    {% if not activity %}
                     <th class="text-end" title="{% trans 'NPCs killed, from bounty ticks' %}">{% trans "Rats" %}</th>
                     <th class="text-end pstats-col-sep" title="{% trans 'Kills / losses from zKillboard' %}">{% trans "Kills / Losses" %}</th>
                     <th class="text-end">{% trans "ISK Destroyed / Lost" %}</th>
                     <th class="text-end" title="{% trans 'Damage on killmails, not Gamelog damage' %}">{% trans "Killmail Dmg" %}</th>
+                    {% endif %}
                     <th></th>
                 </tr>
             </thead>
@@ -56,17 +87,22 @@
                     <td class="text-end pstats-col-in">{{ row.damage_in|floatformat:0 }}</td>
                     <td class="text-end pstats-col-rep">{{ row.reps_received_total|floatformat:0 }}</td>
                     <td class="text-end pstats-col-rep">{{ row.reps_given_total|floatformat:0 }}</td>
+                    {% if not activity %}
                     <td class="text-end pstats-col-isk pstats-col-sep">
                         {% if row.payout_isk or row.wallet_connected %}{{ row.payout_isk|isk }}{% else %}<span class="text-body-secondary" title="{% trans 'No wallet connected' %}">—</span>{% endif %}
                     </td>
+                    {% endif %}
+                    <td class="text-end pstats-col-isk{% if activity %} pstats-col-sep{% endif %}">{% if row.isk_per_hour is not None %}{{ row.isk_per_hour|isk }}{% else %}<span class="text-body-secondary" title="{% trans 'Needs a connected wallet and a logged session of 10 minutes or more' %}">—</span>{% endif %}</td>
+                    {% if not activity %}
                     <td class="text-end">{% if row.rats_killed or row.wallet_connected %}{{ row.rats_killed|floatformat:0 }}{% else %}<span class="text-body-secondary">—</span>{% endif %}</td>
                     <td class="text-end pstats-col-sep">{{ row.kills }} / {{ row.losses }}</td>
                     <td class="text-end small">{{ row.isk_destroyed|isk }} / {{ row.isk_lost|isk }}</td>
                     <td class="text-end">{{ row.km_damage|floatformat:0 }}</td>
+                    {% endif %}
                     <td class="text-end"><i class="fas fa-chevron-down fa-xs text-body-secondary"></i></td>
                 </tr>
                 <tr class="pstats-detail-row">
-                    <td colspan="11" class="p-0 border-0">
+                    <td colspan="{% if activity %}7{% else %}12{% endif %}" class="p-0 border-0">
                         <div class="collapse" id="row-{{ forloop.counter }}">
                             <table class="pstats-detail-table bg-body-tertiary text-body">
                                 <tbody>
@@ -106,4 +142,5 @@
         {% endif %}
     </div>
 </div>
+{% endif %}
 {% endblock %}

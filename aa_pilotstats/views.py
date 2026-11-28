@@ -14,6 +14,7 @@ fleet_list / fleet_detail / track_fleet / stop_fleet — fleet-boss roster track
 """
 
 # Standard Library
+import csv
 import hashlib
 import logging
 import time
@@ -31,7 +32,7 @@ from django.core.exceptions import PermissionDenied
 from django.db import IntegrityError, transaction
 from django.db.models import Count, Sum
 from django.db.models.functions import Coalesce
-from django.http import JsonResponse
+from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
 from django.urls import reverse
@@ -45,9 +46,10 @@ from esi.decorators import token_required
 from esi.exceptions import HTTPClientError
 from esi.models import Token
 
-from . import fleets, payouts, tasks, typenames
+from . import fleets, payouts, tasks, trends, typenames
 from .app_settings import (
     FLEET_SCOPE,
+    PAYOUT_TAIL_MINUTES,
     SCANNER_RECENT_DAYS,
     SCANNER_UPLOADS_PER_MINUTE,
     SESSION_LINK_MINUTES,
@@ -57,6 +59,8 @@ from .forms import LogUploadForm, PrivacyForm
 from .leaderboard import (
     DETAIL_FIELDS,
     SORT_FIELDS,
+    SUM_FIELDS,
+    group_rows,
     leaderboard_rows,
     normalize_sort_key,
     rank_of,
@@ -116,35 +120,128 @@ def _can_delete(user, log_upload) -> bool:
 # ---------------------------------------------------------------------------
 
 
+_CSV_RISKY = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _csv_text(value) -> str:
+    """Names as CSV text that a spreadsheet won't run as a formula."""
+    text = str(value or "")
+    return "'" + text if text.startswith(_CSV_RISKY) else text
+
+
+def _leaderboard_csv(rows, groups, group, range_key, activity):
+    """The leaderboard as shown (pilots, corporations or alliances), as CSV."""
+    metrics = [
+        ("upload_count", "Sessions"),
+        ("damage_out", "Damage dealt"),
+        ("damage_in", "Damage received"),
+        ("reps_received_total", "Reps received"),
+        ("reps_given_total", "Reps given"),
+        ("isk_per_hour", "ISK per hour"),
+    ]
+    if not activity:
+        metrics += [
+            ("payout_isk", "Payout ISK"),
+            ("rats_killed", "Rats killed"),
+            ("kills", "Kills"),
+            ("losses", "Losses"),
+            ("isk_destroyed", "ISK destroyed"),
+            ("isk_lost", "ISK lost"),
+            ("km_damage", "Killmail damage"),
+        ]
+
+    def number(value):
+        if value is None:
+            return ""
+        if isinstance(value, float):
+            return f"{value:.2f}"
+        if isinstance(value, Decimal):
+            return str(value.quantize(Decimal("0.01")))
+        return str(value)
+
+    name = "-".join(filter(None, ["pilotstats", group or "pilots", range_key, activity]))
+    response = HttpResponse(content_type="text/csv; charset=utf-8")
+    response["Content-Disposition"] = f'attachment; filename="{name}.csv"'
+    writer = csv.writer(response)
+    if groups is not None:
+        writer.writerow([group.capitalize(), "Pilots"] + [label for _key, label in metrics])
+        for row in groups:
+            label = row["label"] if row["known"] else "Unknown"
+            writer.writerow(
+                [_csv_text(label), row["pilot_count"]] + [number(row.get(key)) for key, _label in metrics]
+            )
+    else:
+        writer.writerow(["Pilot", "Corporation", "Alliance"] + [label for _key, label in metrics])
+        for row in rows:
+            main = row.get("main")
+            writer.writerow([
+                _csv_text(row["label"]),
+                _csv_text(getattr(main, "corporation_name", "")),
+                _csv_text(getattr(main, "alliance_name", "")),
+            ] + [number(row.get(key)) for key, _label in metrics])
+    return response
+
+
+def _sort_groups(activity):
+    """Sort buttons. With an activity picked, only columns that come from the sessions."""
+    gamelog = (_("Gamelog"), [
+        ("damage_out", _("Damage Dealt")),
+        ("damage_in", _("Damage Received")),
+        ("reps_received_total", _("Reps Received")),
+        ("reps_given_total", _("Reps Given")),
+    ])
+    if activity:
+        return [gamelog, (_("Wallet"), [("isk_per_hour", _("ISK/h"))])]
+    return [
+        gamelog,
+        (_("Wallet"), [
+            ("payout_isk", _("Payout ISK")),
+            ("isk_per_hour", _("ISK/h")),
+            ("rats_killed", _("Rats Killed")),
+        ]),
+        (_("Killmails"), [
+            ("kills", _("Kills")),
+            ("isk_destroyed", _("ISK Destroyed")),
+            ("losses", _("Losses")),
+            ("km_damage", _("Killmail Damage")),
+        ]),
+    ]
+
+
 @login_required
 def leaderboard(request):
     range_key = request.GET.get("range", "30d")
+    activity = request.GET.get("activity", "")
+    if activity not in CombatLogUpload.Activity.values:
+        activity = ""
     sort_key = normalize_sort_key(request.GET.get("sort", "damage_out"), SORT_FIELDS)
-    rows = leaderboard_rows(range_key, sort_key)
+    if activity and sort_key not in SUM_FIELDS + ("isk_per_hour",):
+        sort_key = "damage_out"  # wallet and killmail columns aren't split by activity
+    group = request.GET.get("group", "")
+    if group not in ("corporation", "alliance"):
+        group = ""
+    rows = leaderboard_rows(range_key, sort_key, activity=activity or None)
+    groups = group_rows(rows, by=group, sort_key=sort_key) if group else None
+
+    if request.GET.get("format") == "csv":
+        return _leaderboard_csv(rows, groups, group, range_key, activity)
 
     return render(request, "pilotstats/leaderboard.html", {
         "rows": rows,
+        "groups": groups,
+        "group": group,
+        "group_choices": [
+            ("", _("Pilots")), ("corporation", _("Corporations")), ("alliance", _("Alliances")),
+        ],
         "range_key": range_key,
         "sort_key": sort_key,
-        "ranges": [("7d", _("Last 7 days")), ("30d", _("Last 30 days")), ("all", _("All time"))],
-        "sort_groups": [
-            (_("Gamelog"), [
-                ("damage_out", _("Damage Dealt")),
-                ("damage_in", _("Damage Received")),
-                ("reps_received_total", _("Reps Received")),
-                ("reps_given_total", _("Reps Given")),
-            ]),
-            (_("Wallet"), [
-                ("payout_isk", _("Payout ISK")),
-                ("rats_killed", _("Rats Killed")),
-            ]),
-            (_("Killmails"), [
-                ("kills", _("Kills")),
-                ("isk_destroyed", _("ISK Destroyed")),
-                ("losses", _("Losses")),
-                ("km_damage", _("Killmail Damage")),
-            ]),
+        "activity": activity,
+        "activities": [("", _("All activities"))] + [
+            (value, label) for value, label in CombatLogUpload.Activity.choices
+            if value != CombatLogUpload.Activity.OTHER
         ],
+        "ranges": [("7d", _("Last 7 days")), ("30d", _("Last 30 days")), ("all", _("All time"))],
+        "sort_groups": _sort_groups(activity),
         "payout_labels": dict(Payout.EntryType.choices),
     })
 
@@ -279,7 +376,13 @@ def _process_upload(user, uploaded_file) -> UploadResult:
     raw = uploaded_file.read()
     file_hash = hashlib.sha256(raw).hexdigest()
 
-    if CombatLogUpload.objects.filter(file_hash=file_hash).exists():
+    duplicate = (
+        CombatLogUpload.objects.filter(file_hash=file_hash)
+        .only("pk", "uploaded_by_id", "timeline").first()
+    )
+    if duplicate is not None:
+        if duplicate.uploaded_by_id == user.id and not duplicate.timeline:
+            return _add_timeline(duplicate, raw)
         return UploadResult(
             "duplicate", messages.WARNING, _("This exact file has already been uploaded."),
         )
@@ -337,6 +440,7 @@ def _process_upload(user, uploaded_file) -> UploadResult:
         reps_by_healer=summary["reps_by_healer"],
         reps_by_recipient=summary["reps_by_recipient"],
         feed=summary["feed"],
+        timeline=summary["timeline"],
         combat_lines=stats.combat_lines,
         matched_lines=stats.matched,
     )
@@ -354,6 +458,7 @@ def _process_upload(user, uploaded_file) -> UploadResult:
                 log_upload = CombatLogUpload.objects.create(
                     character=character, log_started=log_started, **values
                 )
+                _match_payouts(log_upload)
                 return UploadResult(
                     "created", messages.SUCCESS,
                     _("Uploaded and parsed — %(n)d combat lines scored.") % {"n": stats.matched},
@@ -367,6 +472,28 @@ def _process_upload(user, uploaded_file) -> UploadResult:
         return UploadResult(
             "duplicate", messages.WARNING, _("This log has already been uploaded."),
         )
+
+
+def _add_timeline(session, raw: bytes) -> UploadResult:
+    """The same file again, for a session stored before charts existed: add its chart."""
+    lines = raw.decode("utf-8", errors="replace").splitlines(keepends=True)
+    session.timeline = summarize(iter_events_from_lines(lines))["timeline"]
+    session.save(update_fields=["timeline"])
+    return UploadResult(
+        "updated", messages.SUCCESS,
+        _("This log was already uploaded; added the damage chart to its session."),
+        session=CombatLogUpload.objects.get(pk=session.pk),
+        new_lines=0,
+    )
+
+
+def _match_payouts(session) -> None:
+    """Give a new or grown session its payout ISK and activity from what's already stored."""
+    payouts.match_sessions(session.character)
+    session.refresh_from_db(fields=["payout_isk", "activity"])
+    if not session.activity:
+        # Older than payout retention, so match_sessions skipped it: names only.
+        payouts.classify_unmatched([session])
 
 
 def _update_existing_session(user, existing, values) -> UploadResult:
@@ -391,6 +518,7 @@ def _update_existing_session(user, existing, values) -> UploadResult:
     for field, value in values.items():
         setattr(existing, field, value)
     existing.save()
+    _match_payouts(existing)
     return UploadResult(
         "updated", messages.SUCCESS,
         _("Updated your existing session for this log — %(n)d new combat lines.") % {"n": added},
@@ -427,8 +555,14 @@ def _session_links(session) -> dict:
         return {}
     slack = timedelta(minutes=SESSION_LINK_MINUTES)
     start, end = session.session_started - slack, session.session_ended + slack
+    # Payouts and rats use the same window as ISK per hour (start of the
+    # session to one bounty tick after it), so the tiles agree with each other.
+    payout_window = (
+        session.session_started,
+        session.session_ended + timedelta(minutes=PAYOUT_TAIL_MINUTES),
+    )
     payouts = list(
-        Payout.objects.filter(character=session.character, occurred_at__range=(start, end))
+        Payout.objects.filter(character=session.character, occurred_at__range=payout_window)
         .only("entry_type", "amount", "npc_kills")
     )
     payout_total = sum((p.amount for p in payouts), Decimal(0))
@@ -457,7 +591,42 @@ def _session_links(session) -> dict:
         "names": typenames.names(ids),
         "payout_labels": dict(Payout.EntryType.choices),
         "window_minutes": SESSION_LINK_MINUTES,
+        "tail_minutes": PAYOUT_TAIL_MINUTES,
     }
+
+
+# ---------------------------------------------------------------------------
+# My stats
+# ---------------------------------------------------------------------------
+
+
+@login_required
+def my_stats(request):
+    """The logged-in pilot's own weekly trends and personal records."""
+    weeks = trends.weekly(request.user)
+    this_week, last_week = weeks[-1], weeks[-2]
+    characters = [
+        ownership.character
+        for ownership in CharacterOwnership.objects.filter(user=request.user).select_related("character")
+    ]
+    chart = {
+        "labels": [week["week"].strftime("%b %d") for week in weeks],
+        "dps": [round(week["dps"]) if week["dps"] is not None else None for week in weeks],
+        "isk_per_hour": [
+            float(round(week["isk_per_hour"])) if week["isk_per_hour"] is not None else None
+            for week in weeks
+        ],
+    }
+    return render(request, "pilotstats/my_stats.html", {
+        "weeks": list(reversed(weeks)),
+        "this_week": this_week,
+        "last_week": last_week,
+        "chart": chart,
+        "has_sessions": any(week["sessions"] for week in weeks),
+        "records": trends.records(request.user),
+        "wallet_connected": any(payouts.wallet_tracked(character) for character in characters),
+        "week_count": trends.WEEKS,
+    })
 
 
 # ---------------------------------------------------------------------------

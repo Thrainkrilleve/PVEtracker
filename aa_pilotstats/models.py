@@ -12,6 +12,7 @@ Payout               One ESI wallet-journal payout line. Nothing writes this yet
 # Standard Library
 import datetime
 import re
+from decimal import Decimal
 
 # Django
 from django.contrib.auth.models import User
@@ -44,6 +45,10 @@ class General(models.Model):
 # CombatLogUpload
 # ---------------------------------------------------------------------------
 
+# Sessions shorter than this get no ISK per hour: a few minutes around one
+# bounty tick would give a wildly inflated rate.
+ISK_RATE_MIN_SECONDS = 10 * 60
+
 
 class CombatLogUpload(models.Model):
     """
@@ -53,6 +58,14 @@ class CombatLogUpload(models.Model):
     events. Event-level detail only matters while a fight is live; for
     history and leaderboards, the per-session summary is all that's needed.
     """
+
+    class Activity(models.TextChoices):
+        RATTING = "ratting", _("Ratting")
+        INCURSION = "incursion", _("Incursion")
+        ABYSSAL = "abyssal", _("Abyssal")
+        MISSION = "mission", _("Missions")
+        OTHER = "other", _("Other")
+
 
     character = models.ForeignKey(
         EveCharacter,
@@ -140,6 +153,37 @@ class CombatLogUpload(models.Model):
             "Empty until a source reports it."
         ),
     )
+    timeline = models.JSONField(
+        _("timeline"),
+        default=dict,
+        blank=True,
+        help_text=_(
+            "Damage and reps per time bucket for the session chart (parsing.build_timeline). "
+            "Empty for sessions uploaded before charts existed."
+        ),
+    )
+    activity = models.CharField(
+        _("activity"),
+        max_length=16,
+        choices=Activity.choices,
+        blank=True,
+        default="",
+        help_text=_(
+            "Ratting, incursion, abyssal or missions, from the wallet and the NPCs shot "
+            "(see activity.classify). Empty when there's no telling."
+        ),
+    )
+    payout_isk = models.DecimalField(
+        _("payout ISK earned"),
+        max_digits=20,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text=_(
+            "Bounty and mission payouts from the session's start until shortly after its end "
+            "(see payouts.match_sessions). Empty when the character's wallet isn't connected."
+        ),
+    )
 
     class Meta:
         verbose_name = _("combat log upload")
@@ -177,6 +221,13 @@ class CombatLogUpload(models.Model):
     @property
     def dps_in(self) -> float:
         return self.damage_in / self.duration_seconds if self.duration_seconds else 0.0
+
+    @property
+    def isk_per_hour(self):
+        """Payout ISK per hour of this session, or None (no wallet data, or too short to mean much)."""
+        if self.payout_isk is None or self.duration_seconds < ISK_RATE_MIN_SECONDS:
+            return None
+        return self.payout_isk * 3600 / Decimal(str(self.duration_seconds))
 
     @property
     def duration_display(self) -> str:

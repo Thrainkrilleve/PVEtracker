@@ -44,6 +44,7 @@
                     <th>{% trans "File" %}</th>
                     <th>{% trans "Uploaded" %}</th>
                     <th>{% trans "Duration" %}</th>
+                    <th>{% trans "Activity" %}</th>
                     <th class="text-end">{% trans "Damage Dealt" %}</th>
                     <th class="text-end">{% trans "Damage Received" %}</th>
                     <th></th>
@@ -58,6 +59,7 @@
                     <td class="text-body-secondary small">
                         {% if u.session_started and u.session_ended %}{{ u.duration_display }}{% else %}—{% endif %}
                     </td>
+                    <td class="text-body-secondary small">{{ u.get_activity_display|default:"—" }}</td>
                     <td class="text-end pstats-col-out">{{ u.damage_out }}</td>
                     <td class="text-end pstats-col-in">{{ u.damage_in }}</td>
                     <td class="text-end">

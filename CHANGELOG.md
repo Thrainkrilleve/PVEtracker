@@ -2,6 +2,40 @@
 
 ## Unreleased
 
+Run `migrate` (adds `0004_combatlogupload_payout_isk`, `0005_combatlogupload_timeline` and `0006_combatlogupload_activity`), then `collectstatic`. Then run `python manage.py pilotstats_classify` once to give stored sessions their activity. Existing sessions from the last month get their ISK per hour at the next hourly wallet pull.
+
+- **ISK per hour.** Each session stores the bounty and mission payouts its character earned from the first combat line until 20 minutes after the last one, the bounty tick interval (`PILOTSTATS_PAYOUT_TAIL_MINUTES`).
+  - **Session page:** a new "ISK per hour" tile.
+  - **Leaderboard:** a sortable **ISK/h** column, weighted by logged hours: total earned ISK divided by total session time, not an average of per-session rates.
+  - **What counts:** ESS escrow is left out, since it's paid hours later in one lump. Sessions under 10 minutes get no rate. A payout two overlapping sessions could claim goes to the later one, so nothing is counted twice.
+  - **No wallet connected:** pilots without one show "—", not 0.
+  - **Opting out:** "Don't read my wallet" also clears this.
+- The session page's **Payouts** and **Rats killed** tiles now use the same window as ISK per hour, from the session's start to 20 minutes after its end, so the three agree. They used 15 minutes either side, which could miss the last bounty tick. Kills and the hull still use 15 minutes either side.
+- **Damage and reps over time.** The session page (and the upload result) has a chart of damage dealt, damage received, reps received and reps given, per second.
+  - **Buckets:** one-minute steps, which grow for long sessions so the chart never has more than 360 points.
+  - **Storage:** the totals are stored with the session when it's parsed (new `timeline` field). List pages don't load them.
+  - **Chart library:** the chart uses Alliance Auth's own Chart.js bundle. If that's blocked, the page says so instead of showing an empty box.
+  - **Older sessions:** sessions uploaded before this have no chart. Uploading the same log file again adds it; that only works for your own sessions, and a re-upload that already has a chart is still a duplicate.
+- **My Stats page** (new tab), for each pilot's own numbers over the last 12 EVE weeks (Monday 00:00 EVE time).
+  - **This week vs last week:** average DPS, ISK per hour, hours logged, and rats killed.
+  - **Trend chart:** weekly average DPS and ISK per hour.
+  - **Table:** sessions, hours, damage, DPS, ISK/h, payouts and rats per week.
+  - **Personal records:** most damage in a session, best session DPS, best session ISK/h, best payout day, and most rats in a day.
+  - **How it's counted:** rates are weighted by time and skip sessions under 10 minutes, like ISK per hour elsewhere. Payouts and rats come from the wallet and need it connected. Only the pilot's own data is shown.
+- **Activity type per session:** Ratting, Incursion, Abyssal or Missions.
+  - **Wallet signals:** a mission reward in the session's payout window means Missions, and a bounty tick means Ratting.
+  - **NPC-name signals:** Sansha incursion NPCs and abyssal NPCs (Triglavians, Drifters, Ephialtes, Karybdis) make up at least a quarter of the damage dealt. An abyssal also needs no bounties, so Triglavian ratting stays Ratting.
+  - **When neither applies:** "Other" if the wallet is connected, blank if not.
+  - **Where it shows:** a badge on the session page, a column on My Uploads, and a filter on the leaderboard. With an activity picked, only the session columns and ISK/h show, because payouts, rats and killmails can't be split by activity.
+  - **When it updates:** sessions are classified on upload and after every wallet pull. `pilotstats_classify` fills in stored sessions; older ones go by NPC names only.
+  - **Opting out:** "Don't read my wallet" clears the wallet-based activities.
+  - **Name lists:** they live in `aa_pilotstats/activity.py`.
+- **Corporation and alliance totals on the leaderboard.** A Pilots / Corporations / Alliances toggle groups pilots under their main's corporation or alliance.
+  - **Columns:** member count and the same columns as the pilot view, for the same range and activity filter.
+  - **Per-group rules:** ISK/h is weighted over all members' logged hours, and a killmail several members are on counts once.
+  - **Details:** each group expands to its members. Pilots without a main go into an "Unknown" group at the bottom.
+- **CSV export** of whatever the leaderboard shows: pilots (with corporation and alliance), corporations or alliances, for the chosen range and activity. Names that start like a spreadsheet formula are quoted so they can't run as one.
+- New [roadmap](ROADMAP.md) with the planned work: session DPS chart, personal trends, activity types, corp totals, MariaDB CI, leaderboard caching, and AA Desktop upload.
 - **Automatic upload with AA Desktop.** When the optional `aa-desktop-bridge` plugin is installed, Pilot Stats registers a desktop module with two routes under `/api/desktop/v1/modules/pilotstats/`: `POST upload` and `GET characters`. Each needs a bearer token with the `desktop.pilotstats.upload` scope and the `pilotstats.basic_access` permission. Uploads use the folder scanner's code, results and per-user limit. Setup is in the README under "Automatic upload with AA Desktop". Without the bridge nothing changes.
 - The JSON upload path is now one function, `views.upload_json`, shared by the folder scanner, multi-file drop and AA Desktop. Behavior is unchanged.
 

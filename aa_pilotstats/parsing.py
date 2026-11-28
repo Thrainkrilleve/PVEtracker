@@ -80,6 +80,13 @@ QUALITY_ORDER = ["Wrecks", "Hits", "Penetrates", "Smashes", "Grazes", "Glances O
 FEED_KINDS = {"damage_out", "damage_in", "remote_rep_in", "remote_rep_out", "miss_out", "miss_in", "jammed"}
 FEED_LIMIT = 60
 
+# Session timeline (the damage-over-time chart): totals per time bucket for
+# these event kinds. Buckets start at one minute and grow for long sessions
+# so a timeline never has more than TIMELINE_MAX_POINTS points.
+TIMELINE_SERIES = ("damage_out", "damage_in", "remote_rep_in", "remote_rep_out")
+TIMELINE_BUCKETS = (60, 120, 300, 600, 900, 1800, 3600)
+TIMELINE_MAX_POINTS = 360
+
 
 @dataclass
 class CombatEvent:
@@ -219,12 +226,15 @@ def summarize(events: Iterable[CombatEvent]) -> dict:
     reps_by_recipient: dict = {}
     first_ts = last_ts = None
     feed: list = []
+    per_minute: list = []  # (timestamp, kind, amount) for the timeline
 
     for e in events:
         if first_ts is None or e.timestamp < first_ts:
             first_ts = e.timestamp
         if last_ts is None or e.timestamp > last_ts:
             last_ts = e.timestamp
+        if e.kind in TIMELINE_SERIES and e.amount:
+            per_minute.append((e.timestamp, e.kind, e.amount))
 
         if e.kind in FEED_KINDS:
             feed.append({
@@ -278,4 +288,31 @@ def summarize(events: Iterable[CombatEvent]) -> dict:
         "feed": feed[-FEED_LIMIT:][::-1],
         "reps_by_healer": top(reps_by_healer),
         "reps_by_recipient": top(reps_by_recipient),
+        "timeline": build_timeline(per_minute, first_ts, last_ts),
     }
+
+
+def build_timeline(samples, first_ts, last_ts) -> dict:
+    """Bucket ``(timestamp, kind, amount)`` samples into a chart-ready dict.
+
+    ``{"start": "2026-11-27T20:15:00Z", "bucket": 60,
+       "damage_out": [...], "damage_in": [...], "remote_rep_in": [...], "remote_rep_out": [...]}``
+
+    ``start`` is the first event's minute in EVE time (UTC). Each list holds the
+    total for one bucket of ``bucket`` seconds, so rate = value / bucket. An
+    empty dict means there was nothing to chart.
+    """
+    if not samples or first_ts is None or last_ts is None:
+        return {}
+    start = first_ts.replace(second=0, microsecond=0)
+    span = (last_ts - start).total_seconds()
+    bucket = next(
+        (size for size in TIMELINE_BUCKETS if span // size + 1 <= TIMELINE_MAX_POINTS),
+        TIMELINE_BUCKETS[-1],
+    )
+    points = min(int(span // bucket) + 1, TIMELINE_MAX_POINTS)
+    series = {kind: [0] * points for kind in TIMELINE_SERIES}
+    for timestamp, kind, amount in samples:
+        index = min(int((timestamp - start).total_seconds() // bucket), points - 1)
+        series[kind][index] += amount
+    return {"start": start.strftime("%Y-%m-%dT%H:%M:%SZ"), "bucket": bucket, **series}

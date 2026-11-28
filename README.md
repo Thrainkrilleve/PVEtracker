@@ -8,7 +8,7 @@ Each EVE client's combat log only ever records damage *involving that pilot*, so
 
 ## Status
 
-Alliance Auth 5.x only (`allianceauth>=5.0.0,<6`). Alliance Auth 4 is not supported. Combat stats still come from uploaded EVE Gamelog `.txt` files. The current version is in [`aa_pilotstats/__init__.py`](aa_pilotstats/__init__.py), and changes are listed in the [changelog](CHANGELOG.md).
+Alliance Auth 5.x only (`allianceauth>=5.0.0,<6`). Alliance Auth 4 is not supported. Combat stats still come from uploaded EVE Gamelog `.txt` files. The current version is in [`aa_pilotstats/__init__.py`](aa_pilotstats/__init__.py), changes are listed in the [changelog](CHANGELOG.md), and planned work is in the [roadmap](ROADMAP.md).
 
 Any logged-in member can view the leaderboard, a stored session, and the events list. Uploading and deleting logs needs `pilotstats.basic_access`.
 
@@ -27,7 +27,10 @@ A note on naming: the installable/importable package is `aa_pilotstats` (distrib
 - **Main/alt roll-up** — leaderboard rows are grouped by each user's designated main character, with a per-character breakdown on expand. The grouping lives in `aa_pilotstats.leaderboard` so later Discord and ISK/kill columns can use the same buckets.
 - **Re-uploading a growing log updates the same session.** The EVE client keeps writing to one file per client session. A session is identified by its character plus the log header's `Session Started:` time, so uploading a longer copy replaces that session's totals instead of counting the fight twice.
 - **Fleet leaderboard** for the last 7 days, last 30 days, or all time, with rank badges and sortable damage and rep columns. The 7- and 30-day windows go by when the fight happened (the log's first combat line, in EVE time / UTC), not by when the log was uploaded.
-- **Session page** — the upload-result dashboard (tiles, hit-quality bars, top targets and attackers, recent activity) has a stable URL, linked from My Uploads. Any logged-in member can open it.
+- **Corporation and alliance totals** — the leaderboard can group pilots by their main's corporation or alliance, and any view downloads as CSV.
+- **Activity types** — each session is labeled Ratting, Incursion, Abyssal or Missions from the wallet (bounty ticks, mission rewards) and the NPCs shot, and the leaderboard can be filtered by activity. After upgrading, run `python manage.py pilotstats_classify` once for stored sessions.
+- **My Stats** — each pilot's own last 12 weeks: average DPS, ISK per hour, hours logged, payouts and rats per week, with a trend chart and personal records (most damage, best DPS, best ISK/h, best payout day, most rats in a day). Any logged-in member sees their own.
+- **Session page** — the upload-result dashboard (tiles, a damage-and-reps-over-time chart, hit-quality bars, top targets and attackers, recent activity) has a stable URL, linked from My Uploads. Any logged-in member can open it.
 - **My Uploads** shows duration, your last session, and your 30-day damage rank.
 - **Events** lists recent lines from uploaded sessions. One checkbox hides your sessions from that list; leaderboard totals are unchanged. Live tailing is not in this version.
 - **Dashboard widget** with your last-7-days damage and reps, last session, and 7-day damage rank.
@@ -169,7 +172,8 @@ Optional, in `local.py`:
 | `PILOTSTATS_SCANNER_RECENT_DAYS` | `7` | The scanner only sends logs modified in the last N days unless "include older logs" is ticked. |
 | `PILOTSTATS_ESI_COMPATIBILITY_DATE` | `"2026-11-19"` | ESI compatibility date sent on every call. Bump it only after checking CCP's ESI changelog. |
 | `PILOTSTATS_PAYOUT_RETENTION_DAYS` | `35` | Days itemized payout lines are kept (daily totals are kept longer). |
-| `PILOTSTATS_SESSION_LINK_MINUTES` | `15` | How far before and after a session payouts, kills and fleet hulls are matched to it. |
+| `PILOTSTATS_SESSION_LINK_MINUTES` | `15` | How far before and after a session kills and fleet hulls are matched to it. |
+| `PILOTSTATS_PAYOUT_TAIL_MINUTES` | `20` | How long after a session ends its last bounty tick can still arrive. Payouts, rats and ISK per hour count from the session start to this long after its end. |
 | `PILOTSTATS_ZKILL_AUTO_STATES` | `["Member"]` | Auth states whose mains' corporations and alliances are tracked on zKill automatically. |
 | `PILOTSTATS_R2Z2_MAX_PER_RUN` | `300` | zKill sequence files read per run of `drain_r2z2`. |
 | `PILOTSTATS_R2Z2_REQUEST_INTERVAL` | `0.15` | Seconds between zKill requests (their limit is 15 a second per IP). |
@@ -218,4 +222,15 @@ python manage.py makemigrations pilotstats --check --dry-run
 
 `settings_dev.py` is not a production settings file. Confirm the pages against your real Alliance Auth theme in the Auth container when you care about Bootswatch colors; the nested leaderboard detail table is styled with the app's own classes for that reason.
 
-GitHub Actions runs `python manage.py test aa_pilotstats` and the `makemigrations --check` step on Python 3.12 with Redis 7.4, against both the oldest supported Alliance Auth (5.0.0) and 5.6.0.
+GitHub Actions runs `python manage.py test aa_pilotstats` and the `makemigrations --check` step on Python 3.12 with Redis 7.4:
+- on SQLite, against the oldest supported Alliance Auth (5.0.0, with django-esi 9.0.0 and the newest) and 5.6.0;
+- on MariaDB 10.11 and 11.8 with Alliance Auth 5.6.0, since real sites run MariaDB or MySQL.
+
+To run the suite on MariaDB or MySQL locally, point `settings_dev.py` at a throwaway server with environment variables (the database user needs to create the `test_` database):
+
+```bash
+docker run -d --rm --name pilotstats-test-db -e MARIADB_ROOT_PASSWORD=example-test-password -p 3306:3306 mariadb:11.8
+PILOTSTATS_TEST_DB=mysql python manage.py test aa_pilotstats
+```
+
+`PILOTSTATS_DB_HOST`, `PILOTSTATS_DB_PORT`, `PILOTSTATS_DB_USER`, `PILOTSTATS_DB_PASSWORD` and `PILOTSTATS_DB_NAME` override the defaults (`127.0.0.1`, `3306`, `root`, `example-test-password`, `pilotstats`).
