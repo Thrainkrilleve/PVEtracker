@@ -59,6 +59,14 @@ class CombatLogUpload(models.Model):
     history and leaderboards, the per-session summary is all that's needed.
     """
 
+    class Activity(models.TextChoices):
+        RATTING = "ratting", _("Ratting")
+        INCURSION = "incursion", _("Incursion")
+        ABYSSAL = "abyssal", _("Abyssal")
+        MISSION = "mission", _("Missions")
+        OTHER = "other", _("Other")
+
+
     character = models.ForeignKey(
         EveCharacter,
         on_delete=models.CASCADE,
@@ -152,6 +160,17 @@ class CombatLogUpload(models.Model):
         help_text=_(
             "Damage and reps per time bucket for the session chart (parsing.build_timeline). "
             "Empty for sessions uploaded before charts existed."
+        ),
+    )
+    activity = models.CharField(
+        _("activity"),
+        max_length=16,
+        choices=Activity.choices,
+        blank=True,
+        default="",
+        help_text=_(
+            "Ratting, incursion, abyssal or missions, from the wallet and the NPCs shot "
+            "(see activity.classify). Empty when there's no telling."
         ),
     )
     payout_isk = models.DecimalField(

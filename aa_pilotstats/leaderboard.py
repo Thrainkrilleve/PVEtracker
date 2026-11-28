@@ -193,6 +193,7 @@ def rank_of(rows, user):
 
 def leaderboard_rows(
     range_key="30d", sort_key="damage_out", *, sum_fields=SUM_FIELDS, now=None, sources=True,
+    activity=None,
 ):
     """
     Roll up stored combat-log sessions, then (``sources=True``) merge in
@@ -202,6 +203,11 @@ def leaderboard_rows(
     matching the leaderboard's existing query-string behavior). The window is
     on when things happened, not when they were uploaded or fetched (see
     ``within_days``).
+
+    ``activity`` (a ``CombatLogUpload.Activity`` value) keeps only sessions of
+    that kind. Wallet and killmail totals can't be split by activity, so they
+    aren't merged in then; ISK per hour still is, since it comes from the
+    sessions themselves.
     """
     # Django
     from django.utils import timezone
@@ -219,13 +225,16 @@ def leaderboard_rows(
     days = RANGE_DAYS.get(range_key)
     if days is not None:
         qs = within_days(qs, days, now)
+    if activity:
+        qs = qs.filter(activity=activity)
+        sources = False
     session_sort = sort_key if sort_key in sum_fields else sum_fields[0]
     rows = rollup_sessions(qs, sort_key=session_sort, sum_fields=sum_fields)
-    if not sources:
-        return rows
-    rows = merge_sources(rows, days=days, now=now)
-    sort_key = normalize_sort_key(sort_key, tuple(sum_fields) + SOURCE_FIELDS)
-    rows.sort(key=lambda row: row.get(sort_key) or 0, reverse=True)
+    if sources:
+        rows = merge_sources(rows, days=days, now=now)
+    if sources or sort_key == "isk_per_hour":
+        sort_key = normalize_sort_key(sort_key, tuple(sum_fields) + SOURCE_FIELDS)
+        rows.sort(key=lambda row: row.get(sort_key) or 0, reverse=True)
     return rows
 
 

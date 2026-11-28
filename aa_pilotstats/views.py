@@ -57,6 +57,7 @@ from .forms import LogUploadForm, PrivacyForm
 from .leaderboard import (
     DETAIL_FIELDS,
     SORT_FIELDS,
+    SUM_FIELDS,
     leaderboard_rows,
     normalize_sort_key,
     rank_of,
@@ -116,36 +117,54 @@ def _can_delete(user, log_upload) -> bool:
 # ---------------------------------------------------------------------------
 
 
+def _sort_groups(activity):
+    """Sort buttons. With an activity picked, only columns that come from the sessions."""
+    gamelog = (_("Gamelog"), [
+        ("damage_out", _("Damage Dealt")),
+        ("damage_in", _("Damage Received")),
+        ("reps_received_total", _("Reps Received")),
+        ("reps_given_total", _("Reps Given")),
+    ])
+    if activity:
+        return [gamelog, (_("Wallet"), [("isk_per_hour", _("ISK/h"))])]
+    return [
+        gamelog,
+        (_("Wallet"), [
+            ("payout_isk", _("Payout ISK")),
+            ("isk_per_hour", _("ISK/h")),
+            ("rats_killed", _("Rats Killed")),
+        ]),
+        (_("Killmails"), [
+            ("kills", _("Kills")),
+            ("isk_destroyed", _("ISK Destroyed")),
+            ("losses", _("Losses")),
+            ("km_damage", _("Killmail Damage")),
+        ]),
+    ]
+
+
 @login_required
 def leaderboard(request):
     range_key = request.GET.get("range", "30d")
+    activity = request.GET.get("activity", "")
+    if activity not in CombatLogUpload.Activity.values:
+        activity = ""
     sort_key = normalize_sort_key(request.GET.get("sort", "damage_out"), SORT_FIELDS)
-    rows = leaderboard_rows(range_key, sort_key)
+    if activity and sort_key not in SUM_FIELDS + ("isk_per_hour",):
+        sort_key = "damage_out"  # wallet and killmail columns aren't split by activity
+    rows = leaderboard_rows(range_key, sort_key, activity=activity or None)
 
     return render(request, "pilotstats/leaderboard.html", {
         "rows": rows,
         "range_key": range_key,
         "sort_key": sort_key,
-        "ranges": [("7d", _("Last 7 days")), ("30d", _("Last 30 days")), ("all", _("All time"))],
-        "sort_groups": [
-            (_("Gamelog"), [
-                ("damage_out", _("Damage Dealt")),
-                ("damage_in", _("Damage Received")),
-                ("reps_received_total", _("Reps Received")),
-                ("reps_given_total", _("Reps Given")),
-            ]),
-            (_("Wallet"), [
-                ("payout_isk", _("Payout ISK")),
-                ("isk_per_hour", _("ISK/h")),
-                ("rats_killed", _("Rats Killed")),
-            ]),
-            (_("Killmails"), [
-                ("kills", _("Kills")),
-                ("isk_destroyed", _("ISK Destroyed")),
-                ("losses", _("Losses")),
-                ("km_damage", _("Killmail Damage")),
-            ]),
+        "activity": activity,
+        "activities": [("", _("All activities"))] + [
+            (value, label) for value, label in CombatLogUpload.Activity.choices
+            if value != CombatLogUpload.Activity.OTHER
         ],
+        "ranges": [("7d", _("Last 7 days")), ("30d", _("Last 30 days")), ("all", _("All time"))],
+        "sort_groups": _sort_groups(activity),
         "payout_labels": dict(Payout.EntryType.choices),
     })
 
@@ -375,9 +394,12 @@ def _add_timeline(session, raw: bytes) -> UploadResult:
 
 
 def _match_payouts(session) -> None:
-    """Give a new or grown session its payout ISK from wallet lines already stored."""
+    """Give a new or grown session its payout ISK and activity from what's already stored."""
     payouts.match_sessions(session.character)
-    session.refresh_from_db(fields=["payout_isk"])
+    session.refresh_from_db(fields=["payout_isk", "activity"])
+    if not session.activity:
+        # Older than payout retention, so match_sessions skipped it: names only.
+        payouts.classify_unmatched([session])
 
 
 def _update_existing_session(user, existing, values) -> UploadResult:

@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-Run `migrate` (adds `0004_combatlogupload_payout_isk` and `0005_combatlogupload_timeline`), then `collectstatic`. Existing sessions from the last month get their ISK per hour at the next hourly wallet pull.
+Run `migrate` (adds `0004_combatlogupload_payout_isk`, `0005_combatlogupload_timeline` and `0006_combatlogupload_activity`), then `collectstatic`. Then run `python manage.py pilotstats_classify` once to give stored sessions their activity. Existing sessions from the last month get their ISK per hour at the next hourly wallet pull.
 
 - **ISK per hour.** Each session stores the bounty and mission payouts its character earned from the first combat line until 20 minutes after the last one, the bounty tick interval (`PILOTSTATS_PAYOUT_TAIL_MINUTES`).
   - **Session page:** a new "ISK per hour" tile.
@@ -22,6 +22,14 @@ Run `migrate` (adds `0004_combatlogupload_payout_isk` and `0005_combatlogupload_
   - **Table:** sessions, hours, damage, DPS, ISK/h, payouts and rats per week.
   - **Personal records:** most damage in a session, best session DPS, best session ISK/h, best payout day, and most rats in a day.
   - **How it's counted:** rates are weighted by time and skip sessions under 10 minutes, like ISK per hour elsewhere. Payouts and rats come from the wallet and need it connected. Only the pilot's own data is shown.
+- **Activity type per session:** Ratting, Incursion, Abyssal or Missions.
+  - **Wallet signals:** a mission reward in the session's payout window means Missions, and a bounty tick means Ratting.
+  - **NPC-name signals:** Sansha incursion NPCs and abyssal NPCs (Triglavians, Drifters, Ephialtes, Karybdis) make up at least a quarter of the damage dealt. An abyssal also needs no bounties, so Triglavian ratting stays Ratting.
+  - **When neither applies:** "Other" if the wallet is connected, blank if not.
+  - **Where it shows:** a badge on the session page, a column on My Uploads, and a filter on the leaderboard. With an activity picked, only the session columns and ISK/h show, because payouts, rats and killmails can't be split by activity.
+  - **When it updates:** sessions are classified on upload and after every wallet pull. `pilotstats_classify` fills in stored sessions; older ones go by NPC names only.
+  - **Opting out:** "Don't read my wallet" clears the wallet-based activities.
+  - **Name lists:** they live in `aa_pilotstats/activity.py`.
 - New [roadmap](ROADMAP.md) with the planned work: session DPS chart, personal trends, activity types, corp totals, MariaDB CI, leaderboard caching, and AA Desktop upload.
 
 ## v0.1.1

@@ -1,7 +1,10 @@
 {% load i18n static %}
 <div class="d-flex justify-content-between align-items-baseline mb-2 flex-wrap gap-2">
     <div>
-        <h2 class="mb-0">{{ session.character.character_name }}</h2>
+        <h2 class="mb-0">
+            {{ session.character.character_name }}
+            {% if session.activity %}<span class="badge text-bg-secondary align-middle fs-6 fw-normal" title="{% trans 'From the wallet and the NPCs shot' %}">{{ session.get_activity_display }}</span>{% endif %}
+        </h2>
         <span class="text-body-secondary small">
             {% if session.session_started and session.session_ended %}
             {{ session.duration_display }} {% trans "session" %} &middot;
