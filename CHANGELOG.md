@@ -16,6 +16,12 @@ Run `migrate` (adds `0004_combatlogupload_payout_isk` and `0005_combatlogupload_
   - **Storage:** the totals are stored with the session when it's parsed (new `timeline` field). List pages don't load them.
   - **Chart library:** the chart uses Alliance Auth's own Chart.js bundle. If that's blocked, the page says so instead of showing an empty box.
   - **Older sessions:** sessions uploaded before this have no chart. Uploading the same log file again adds it; that only works for your own sessions, and a re-upload that already has a chart is still a duplicate.
+- **My Stats page** (new tab), for each pilot's own numbers over the last 12 EVE weeks (Monday 00:00 EVE time).
+  - **This week vs last week:** average DPS, ISK per hour, hours logged, and rats killed.
+  - **Trend chart:** weekly average DPS and ISK per hour.
+  - **Table:** sessions, hours, damage, DPS, ISK/h, payouts and rats per week.
+  - **Personal records:** most damage in a session, best session DPS, best session ISK/h, best payout day, and most rats in a day.
+  - **How it's counted:** rates are weighted by time and skip sessions under 10 minutes, like ISK per hour elsewhere. Payouts and rats come from the wallet and need it connected. Only the pilot's own data is shown.
 - New [roadmap](ROADMAP.md) with the planned work: session DPS chart, personal trends, activity types, corp totals, MariaDB CI, leaderboard caching, and AA Desktop upload.
 
 ## v0.1.0 — Pilot Stats

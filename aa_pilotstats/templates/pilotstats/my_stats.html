@@ -1,0 +1,140 @@
+{% extends 'pilotstats/base.html' %}
+{% load i18n static pilotstats %}
+
+{% block pilotstats_content %}
+<h1 class="mb-1">{% trans "My Stats" %}</h1>
+<p class="text-body-secondary small mb-3">
+    {% blocktrans trimmed with weeks=week_count %}
+    Your last {{ weeks }} weeks, by when you flew. Weeks start Monday 00:00 EVE time.
+    Average DPS and ISK per hour are weighted by time and only count sessions of 10 minutes or more.
+    {% endblocktrans %}
+</p>
+
+<div class="pstats-stat-grid mb-3">
+    <div class="pstats-stat-card bg-body-tertiary text-body out">
+        <div class="pstats-stat-label text-body-secondary">{% trans "Average DPS this week" %}</div>
+        <div class="pstats-stat-value">{% if this_week.dps is not None %}{{ this_week.dps|floatformat:0 }}{% else %}—{% endif %}</div>
+        <div class="pstats-stat-foot text-body-secondary">{% trans "last week" %}: {% if last_week.dps is not None %}{{ last_week.dps|floatformat:0 }}{% else %}—{% endif %}</div>
+    </div>
+    <div class="pstats-stat-card bg-body-tertiary text-body">
+        <div class="pstats-stat-label text-body-secondary">{% trans "ISK per hour this week" %}</div>
+        <div class="pstats-stat-value pstats-col-isk">{% if this_week.isk_per_hour is not None %}{{ this_week.isk_per_hour|isk }}{% else %}—{% endif %}</div>
+        <div class="pstats-stat-foot text-body-secondary">{% trans "last week" %}: {% if last_week.isk_per_hour is not None %}{{ last_week.isk_per_hour|isk }}{% else %}—{% endif %}</div>
+    </div>
+    <div class="pstats-stat-card bg-body-tertiary text-body">
+        <div class="pstats-stat-label text-body-secondary">{% trans "Hours logged this week" %}</div>
+        <div class="pstats-stat-value">{{ this_week.hours|floatformat:1 }}</div>
+        <div class="pstats-stat-foot text-body-secondary">{% trans "last week" %}: {{ last_week.hours|floatformat:1 }}</div>
+    </div>
+    <div class="pstats-stat-card bg-body-tertiary text-body rep">
+        <div class="pstats-stat-label text-body-secondary">{% trans "Rats killed this week" %}</div>
+        <div class="pstats-stat-value">{% if wallet_connected %}{{ this_week.rats }}{% else %}—{% endif %}</div>
+        <div class="pstats-stat-foot text-body-secondary">{% trans "last week" %}: {% if wallet_connected %}{{ last_week.rats }}{% else %}—{% endif %}</div>
+    </div>
+</div>
+
+{% if not wallet_connected %}
+<div class="alert alert-info small py-2">
+    {% url 'pilotstats:events' as events_url %}
+    {% blocktrans trimmed %}
+    ISK per hour, payouts and rats need a connected wallet. Connect one on the <a href="{{ events_url }}">Events</a> page.
+    {% endblocktrans %}
+</div>
+{% endif %}
+
+{% if has_sessions %}
+<div class="pstats-panel bg-body-tertiary text-body mb-3">
+    <div class="pstats-panel-title text-body-secondary">{% trans "Weekly trend" %}</div>
+    <div class="pstats-chart-wrap"
+         data-label-dps="{% trans 'Average DPS' %}"
+         data-label-isk="{% trans 'ISK per hour' %}"
+         data-unavailable="{% trans 'The chart library could not load (blocked or offline).' %}">
+        <canvas id="pstats-trends-chart" role="img" aria-label="{% trans 'Weekly average DPS and ISK per hour' %}"></canvas>
+    </div>
+    {{ chart|json_script:"pstats-trends-data" }}
+</div>
+{% endif %}
+
+<div class="row g-3 mb-3">
+    <div class="col-lg-8">
+        <div class="pstats-panel bg-body-tertiary text-body">
+            <div class="pstats-panel-title text-body-secondary">{% trans "By week" %}</div>
+            {% if has_sessions or wallet_connected %}
+            <div class="pstats-table-scroll">
+            <table class="table table-sm align-middle mb-0 text-nowrap">
+                <thead>
+                    <tr>
+                        <th>{% trans "Week of" %}</th>
+                        <th class="text-end">{% trans "Sessions" %}</th>
+                        <th class="text-end">{% trans "Hours" %}</th>
+                        <th class="text-end">{% trans "Damage" %}</th>
+                        <th class="text-end">{% trans "Avg DPS" %}</th>
+                        <th class="text-end">{% trans "ISK/h" %}</th>
+                        <th class="text-end">{% trans "Payouts" %}</th>
+                        <th class="text-end">{% trans "Rats" %}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for week in weeks %}
+                    <tr>
+                        <td>{{ week.week|date:"M j" }}</td>
+                        <td class="text-end">{{ week.sessions }}</td>
+                        <td class="text-end">{{ week.hours|floatformat:1 }}</td>
+                        <td class="text-end pstats-col-out">{{ week.damage_out|floatformat:0 }}</td>
+                        <td class="text-end pstats-col-out">{% if week.dps is not None %}{{ week.dps|floatformat:0 }}{% else %}<span class="text-body-secondary">—</span>{% endif %}</td>
+                        <td class="text-end pstats-col-isk">{% if week.isk_per_hour is not None %}{{ week.isk_per_hour|isk }}{% else %}<span class="text-body-secondary">—</span>{% endif %}</td>
+                        <td class="text-end pstats-col-isk">{% if wallet_connected %}{{ week.payouts|isk }}{% else %}<span class="text-body-secondary">—</span>{% endif %}</td>
+                        <td class="text-end">{% if wallet_connected %}{{ week.rats }}{% else %}<span class="text-body-secondary">—</span>{% endif %}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            </div>
+            {% else %}
+            <p class="text-body-secondary small mb-0">
+                {% trans "Nothing in the last weeks yet." %}
+                {% if perms.pilotstats.basic_access %}
+                <a href="{% url 'pilotstats:upload' %}">{% trans "Upload a combat log" %}</a>.
+                {% endif %}
+            </p>
+            {% endif %}
+        </div>
+    </div>
+    <div class="col-lg-4">
+        <div class="pstats-panel bg-body-tertiary text-body">
+            <div class="pstats-panel-title text-body-secondary">{% trans "Personal records" %}</div>
+            <table class="pstats-mini-table"><tbody>
+                <tr>
+                    <td>{% trans "Most damage in a session" %}</td>
+                    <td class="pstats-amt">{% if records.damage %}<a href="{% url 'pilotstats:session' records.damage.pk %}">{{ records.damage.damage_out|floatformat:0 }}</a>{% else %}—{% endif %}</td>
+                </tr>
+                <tr>
+                    <td>{% trans "Best session DPS" %}</td>
+                    <td class="pstats-amt">{% if records.dps %}<a href="{% url 'pilotstats:session' records.dps.pk %}">{{ records.dps.dps_out|floatformat:0 }}</a>{% else %}—{% endif %}</td>
+                </tr>
+                <tr>
+                    <td>{% trans "Best session ISK/h" %}</td>
+                    <td class="pstats-amt">{% if records.isk_per_hour %}<a href="{% url 'pilotstats:session' records.isk_per_hour.pk %}">{{ records.isk_per_hour.isk_per_hour|isk }}</a>{% else %}—{% endif %}</td>
+                </tr>
+                <tr>
+                    <td>{% trans "Best payout day" %}</td>
+                    <td class="pstats-amt">{% if records.payout_day %}{{ records.payout_day.total|isk }} <span class="text-body-secondary">({{ records.payout_day.day|date:"M j" }})</span>{% else %}—{% endif %}</td>
+                </tr>
+                <tr>
+                    <td>{% trans "Most rats in a day" %}</td>
+                    <td class="pstats-amt">{% if records.rats_day %}{{ records.rats_day.total }} <span class="text-body-secondary">({{ records.rats_day.day|date:"M j" }})</span>{% else %}—{% endif %}</td>
+                </tr>
+            </tbody></table>
+            <p class="text-body-secondary small mb-0 mt-2">{% trans "Rate records need a session of 10 minutes or more." %}</p>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_javascript %}
+{{ block.super }}
+{% if has_sessions %}
+{% include "bundles/chart-js.html" %}
+<script src="{% static 'pilotstats/js/my_stats_chart.js' %}" defer></script>
+{% endif %}
+{% endblock extra_javascript %}

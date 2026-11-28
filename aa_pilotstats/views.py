@@ -44,7 +44,7 @@ from esi.decorators import token_required
 from esi.exceptions import HTTPClientError
 from esi.models import Token
 
-from . import fleets, payouts, tasks, typenames
+from . import fleets, payouts, tasks, trends, typenames
 from .app_settings import (
     FLEET_SCOPE,
     PAYOUT_TAIL_MINUTES,
@@ -477,6 +477,40 @@ def _session_links(session) -> dict:
         "window_minutes": SESSION_LINK_MINUTES,
         "tail_minutes": PAYOUT_TAIL_MINUTES,
     }
+
+
+# ---------------------------------------------------------------------------
+# My stats
+# ---------------------------------------------------------------------------
+
+
+@login_required
+def my_stats(request):
+    """The logged-in pilot's own weekly trends and personal records."""
+    weeks = trends.weekly(request.user)
+    this_week, last_week = weeks[-1], weeks[-2]
+    characters = [
+        ownership.character
+        for ownership in CharacterOwnership.objects.filter(user=request.user).select_related("character")
+    ]
+    chart = {
+        "labels": [week["week"].strftime("%b %d") for week in weeks],
+        "dps": [round(week["dps"]) if week["dps"] is not None else None for week in weeks],
+        "isk_per_hour": [
+            float(round(week["isk_per_hour"])) if week["isk_per_hour"] is not None else None
+            for week in weeks
+        ],
+    }
+    return render(request, "pilotstats/my_stats.html", {
+        "weeks": list(reversed(weeks)),
+        "this_week": this_week,
+        "last_week": last_week,
+        "chart": chart,
+        "has_sessions": any(week["sessions"] for week in weeks),
+        "records": trends.records(request.user),
+        "wallet_connected": any(payouts.wallet_tracked(character) for character in characters),
+        "week_count": trends.WEEKS,
+    })
 
 
 # ---------------------------------------------------------------------------

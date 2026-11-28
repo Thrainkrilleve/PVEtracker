@@ -29,6 +29,13 @@
         </li>
         {% endif %}
         <li class="nav-item">
+            <a href="{% url 'pilotstats:my_stats' %}"
+               class="nav-link{% if url_name == 'my_stats' %} active{% endif %}"
+               {% if url_name == 'my_stats' %}aria-current="page"{% endif %}>
+                {% trans "My Stats" %}
+            </a>
+        </li>
+        <li class="nav-item">
             <a href="{% url 'pilotstats:events' %}"
                class="nav-link{% if url_name == 'events' %} active{% endif %}"
                {% if url_name == 'events' %}aria-current="page"{% endif %}>
