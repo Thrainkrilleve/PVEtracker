@@ -4,9 +4,9 @@ What's planned for Pilot Stats, roughly in order. Released work is in the [chang
 
 ## For pilots
 
-1. **ISK per hour** *(in progress)*. Bounty and mission payouts earned during a logged session, divided by its length. Shown on the session page, and as a leaderboard column weighted by logged hours.
-2. **Damage-over-time chart on the session page.** Per-minute DPS and reps for the session, to show ramp-up, downtime between waves, and when logi was busy. Needs per-minute totals stored with each session.
-3. **Personal trends.** A "My stats" page with DPS, ISK/h and rats killed per week over time, and the pilot's personal records.
+1. **ISK per hour** *(in review)*. Bounty and mission payouts earned during a logged session, divided by its length. Shown on the session page, and as a leaderboard column weighted by logged hours.
+2. **Damage-over-time chart on the session page** *(in review)*. Per-minute DPS and reps for the session, to show ramp-up, downtime between waves, and when logi was busy. Needs per-minute totals stored with each session.
+3. **Personal trends** *(in review)*. A "My stats" page with DPS, ISK/h and rats killed per week over time, and the pilot's personal records.
 
 ## For fleets and leadership
 

@@ -328,3 +328,12 @@
 .pstats-km-row .pstats-km-what { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pstats-km-row.loss .pstats-km-value { color: var(--pstats-in); }
 .pstats-km-row.kill .pstats-km-value { color: var(--pstats-out); }
+
+/* Session timeline chart */
+.pstats-chart-wrap {
+    position: relative;
+    height: 260px;
+}
+@media (max-width: 576px) {
+    .pstats-chart-wrap { height: 200px; }
+}

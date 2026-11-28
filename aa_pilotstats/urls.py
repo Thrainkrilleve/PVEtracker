@@ -12,6 +12,7 @@ urlpatterns = [
     path("upload/", views.upload, name="upload"),
     path("upload/characters.json", views.upload_characters, name="upload_characters"),
     path("sessions/<int:pk>/", views.session_detail, name="session"),
+    path("my-stats/", views.my_stats, name="my_stats"),
     path("my-uploads/", views.my_uploads, name="my_uploads"),
     path("my-uploads/<int:pk>/delete/", views.delete_upload, name="delete_upload"),
     path("events/", views.events, name="events"),

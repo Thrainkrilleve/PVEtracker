@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-Run `migrate` (adds `0004_combatlogupload_payout_isk`). Existing sessions from the last month get their ISK per hour at the next hourly wallet pull.
+Run `migrate` (adds `0004_combatlogupload_payout_isk` and `0005_combatlogupload_timeline`), then `collectstatic`. Existing sessions from the last month get their ISK per hour at the next hourly wallet pull.
 
 - **ISK per hour.** Each session stores the bounty and mission payouts its character earned from the first combat line until 20 minutes after the last one, the bounty tick interval (`PILOTSTATS_PAYOUT_TAIL_MINUTES`).
   - **Session page:** a new "ISK per hour" tile.
@@ -11,6 +11,17 @@ Run `migrate` (adds `0004_combatlogupload_payout_isk`). Existing sessions from t
   - **No wallet connected:** pilots without one show "—", not 0.
   - **Opting out:** "Don't read my wallet" also clears this.
 - The session page's **Payouts** and **Rats killed** tiles now use the same window as ISK per hour, from the session's start to 20 minutes after its end, so the three agree. They used 15 minutes either side, which could miss the last bounty tick. Kills and the hull still use 15 minutes either side.
+- **Damage and reps over time.** The session page (and the upload result) has a chart of damage dealt, damage received, reps received and reps given, per second.
+  - **Buckets:** one-minute steps, which grow for long sessions so the chart never has more than 360 points.
+  - **Storage:** the totals are stored with the session when it's parsed (new `timeline` field). List pages don't load them.
+  - **Chart library:** the chart uses Alliance Auth's own Chart.js bundle. If that's blocked, the page says so instead of showing an empty box.
+  - **Older sessions:** sessions uploaded before this have no chart. Uploading the same log file again adds it; that only works for your own sessions, and a re-upload that already has a chart is still a duplicate.
+- **My Stats page** (new tab), for each pilot's own numbers over the last 12 EVE weeks (Monday 00:00 EVE time).
+  - **This week vs last week:** average DPS, ISK per hour, hours logged, and rats killed.
+  - **Trend chart:** weekly average DPS and ISK per hour.
+  - **Table:** sessions, hours, damage, DPS, ISK/h, payouts and rats per week.
+  - **Personal records:** most damage in a session, best session DPS, best session ISK/h, best payout day, and most rats in a day.
+  - **How it's counted:** rates are weighted by time and skip sessions under 10 minutes, like ISK per hour elsewhere. Payouts and rats come from the wallet and need it connected. Only the pilot's own data is shown.
 - New [roadmap](ROADMAP.md) with the planned work: session DPS chart, personal trends, activity types, corp totals, MariaDB CI, leaderboard caching, and AA Desktop upload.
 
 ## v0.1.1

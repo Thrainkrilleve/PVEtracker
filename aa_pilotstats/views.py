@@ -44,7 +44,7 @@ from esi.decorators import token_required
 from esi.exceptions import HTTPClientError
 from esi.models import Token
 
-from . import fleets, payouts, tasks, typenames
+from . import fleets, payouts, tasks, trends, typenames
 from .app_settings import (
     FLEET_SCOPE,
     PAYOUT_TAIL_MINUTES,
@@ -263,7 +263,13 @@ def _process_upload(user, uploaded_file) -> UploadResult:
     raw = uploaded_file.read()
     file_hash = hashlib.sha256(raw).hexdigest()
 
-    if CombatLogUpload.objects.filter(file_hash=file_hash).exists():
+    duplicate = (
+        CombatLogUpload.objects.filter(file_hash=file_hash)
+        .only("pk", "uploaded_by_id", "timeline").first()
+    )
+    if duplicate is not None:
+        if duplicate.uploaded_by_id == user.id and not duplicate.timeline:
+            return _add_timeline(duplicate, raw)
         return UploadResult(
             "duplicate", messages.WARNING, _("This exact file has already been uploaded."),
         )
@@ -321,6 +327,7 @@ def _process_upload(user, uploaded_file) -> UploadResult:
         reps_by_healer=summary["reps_by_healer"],
         reps_by_recipient=summary["reps_by_recipient"],
         feed=summary["feed"],
+        timeline=summary["timeline"],
         combat_lines=stats.combat_lines,
         matched_lines=stats.matched,
     )
@@ -352,6 +359,19 @@ def _process_upload(user, uploaded_file) -> UploadResult:
         return UploadResult(
             "duplicate", messages.WARNING, _("This log has already been uploaded."),
         )
+
+
+def _add_timeline(session, raw: bytes) -> UploadResult:
+    """The same file again, for a session stored before charts existed: add its chart."""
+    lines = raw.decode("utf-8", errors="replace").splitlines(keepends=True)
+    session.timeline = summarize(iter_events_from_lines(lines))["timeline"]
+    session.save(update_fields=["timeline"])
+    return UploadResult(
+        "updated", messages.SUCCESS,
+        _("This log was already uploaded; added the damage chart to its session."),
+        session=CombatLogUpload.objects.get(pk=session.pk),
+        new_lines=0,
+    )
 
 
 def _match_payouts(session) -> None:
@@ -457,6 +477,40 @@ def _session_links(session) -> dict:
         "window_minutes": SESSION_LINK_MINUTES,
         "tail_minutes": PAYOUT_TAIL_MINUTES,
     }
+
+
+# ---------------------------------------------------------------------------
+# My stats
+# ---------------------------------------------------------------------------
+
+
+@login_required
+def my_stats(request):
+    """The logged-in pilot's own weekly trends and personal records."""
+    weeks = trends.weekly(request.user)
+    this_week, last_week = weeks[-1], weeks[-2]
+    characters = [
+        ownership.character
+        for ownership in CharacterOwnership.objects.filter(user=request.user).select_related("character")
+    ]
+    chart = {
+        "labels": [week["week"].strftime("%b %d") for week in weeks],
+        "dps": [round(week["dps"]) if week["dps"] is not None else None for week in weeks],
+        "isk_per_hour": [
+            float(round(week["isk_per_hour"])) if week["isk_per_hour"] is not None else None
+            for week in weeks
+        ],
+    }
+    return render(request, "pilotstats/my_stats.html", {
+        "weeks": list(reversed(weeks)),
+        "this_week": this_week,
+        "last_week": last_week,
+        "chart": chart,
+        "has_sessions": any(week["sessions"] for week in weeks),
+        "records": trends.records(request.user),
+        "wallet_connected": any(payouts.wallet_tracked(character) for character in characters),
+        "week_count": trends.WEEKS,
+    })
 
 
 # ---------------------------------------------------------------------------

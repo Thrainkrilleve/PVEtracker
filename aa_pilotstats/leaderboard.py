@@ -48,6 +48,7 @@ DETAIL_FIELDS = (
     "reps_by_healer",
     "reps_by_recipient",
     "feed",
+    "timeline",
 )
 
 
