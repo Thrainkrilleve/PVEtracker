@@ -135,8 +135,8 @@ def rollup_sessions(sessions, *, sort_key="damage_out", sum_fields=SUM_FIELDS):
                 "user_id": user_id,
                 "upload_count": 0,
                 "by_character": {},
-                "_earned": Decimal(0),
-                "_earned_seconds": 0.0,
+                "isk_earned": Decimal(0),
+                "isk_seconds": 0.0,
             }
             for field in fields:
                 bucket[field] = 0
@@ -146,8 +146,8 @@ def rollup_sessions(sessions, *, sort_key="damage_out", sum_fields=SUM_FIELDS):
         earned = getattr(row, "payout_isk", None)
         seconds = _session_seconds(row)
         if earned is not None and seconds >= ISK_RATE_MIN_SECONDS:
-            bucket["_earned"] += earned
-            bucket["_earned_seconds"] += seconds
+            bucket["isk_earned"] += earned
+            bucket["isk_seconds"] += seconds
         for field in fields:
             bucket[field] += getattr(row, field, 0) or 0
 
@@ -161,8 +161,7 @@ def rollup_sessions(sessions, *, sort_key="damage_out", sum_fields=SUM_FIELDS):
 
     rows = list(buckets.values())
     for row in rows:
-        earned, seconds = row.pop("_earned"), row.pop("_earned_seconds")
-        row["isk_per_hour"] = earned * 3600 / Decimal(str(seconds)) if seconds else None
+        row["isk_per_hour"] = _rate(row["isk_earned"], row["isk_seconds"])
     rows.sort(key=lambda item: item[sort_key], reverse=True)
     for row in rows:
         row["by_character"] = sorted(
@@ -171,6 +170,11 @@ def rollup_sessions(sessions, *, sort_key="damage_out", sum_fields=SUM_FIELDS):
             reverse=True,
         )
     return rows
+
+
+def _rate(earned, seconds):
+    """ISK per hour from earned ISK and seconds, or None without any time."""
+    return earned * 3600 / Decimal(str(seconds)) if seconds else None
 
 
 def _session_seconds(row) -> float:
@@ -311,6 +315,7 @@ def merge_sources(rows, *, days=None, now=None):
             row = {
                 "key": key, "label": label, "main": main, "user_id": user_id,
                 "upload_count": 0, "by_character": [],
+                "isk_earned": Decimal(0), "isk_seconds": 0.0, "isk_per_hour": None,
                 **{field: 0 for field in SUM_FIELDS},
             }
             by_key[key] = row
@@ -350,6 +355,8 @@ def merge_sources(rows, *, days=None, now=None):
     for row in rows:
         _ensure_source_fields(row)
         kills, losses = row.pop("_kills"), row.pop("_losses")
+        # Kept so group_rows can count a kill once per corporation too.
+        row["kill_values"], row["loss_values"] = kills, losses
         row["kills"], row["isk_destroyed"] = len(kills), sum(kills.values(), Decimal(0))
         row["losses"], row["isk_lost"] = len(losses), sum(losses.values(), Decimal(0))
         row["payout_by_type"] = dict(row["payout_by_type"])
@@ -363,3 +370,64 @@ def _ensure_source_fields(row):
             "payout_isk": Decimal(0), "payout_by_type": defaultdict(Decimal),
             "rats_killed": 0, "km_damage": 0, "_kills": {}, "_losses": {},
         })
+
+
+# ---- Corporation and alliance totals ------------------------------------------------
+
+GROUP_SUM_FIELDS = SUM_FIELDS + ("upload_count", "payout_isk", "rats_killed", "km_damage")
+
+
+def group_rows(rows, by="corporation", sort_key="damage_out"):
+    """Fold pilot rows (from ``leaderboard_rows``) into one row per corporation or alliance.
+
+    A pilot counts under their main's corporation (or alliance). Pilots with
+    no main, and characters nobody owns, go into one "unknown" group.
+    Totals are sums; ISK per hour is time-weighted again (all earned ISK over
+    all logged hours); a killmail several members are on counts once.
+    """
+    groups: dict = {}
+    for row in rows:
+        main = row.get("main")
+        if by == "alliance":
+            key = getattr(main, "alliance_id", None) or None
+            label = getattr(main, "alliance_name", "") if key else ""
+        else:
+            key = getattr(main, "corporation_id", None) or None
+            label = getattr(main, "corporation_name", "") if key else ""
+        group = groups.get(key)
+        if group is None:
+            group = {
+                "key": key,
+                "label": label,
+                "known": key is not None,
+                "alliance": getattr(main, "alliance_name", "") if by == "corporation" and key else "",
+                "pilots": [],
+                "isk_earned": Decimal(0),
+                "isk_seconds": 0.0,
+                "kill_values": {},
+                "loss_values": {},
+                "wallet_connected": False,
+                **{field: 0 for field in GROUP_SUM_FIELDS},
+            }
+            groups[key] = group
+        group["pilots"].append(row)
+        for field in GROUP_SUM_FIELDS:
+            group[field] += row.get(field) or 0
+        group["isk_earned"] += row.get("isk_earned") or 0
+        group["isk_seconds"] += row.get("isk_seconds") or 0
+        group["kill_values"].update(row.get("kill_values") or {})
+        group["loss_values"].update(row.get("loss_values") or {})
+        group["wallet_connected"] = group["wallet_connected"] or bool(row.get("wallet_connected"))
+
+    result = list(groups.values())
+    for group in result:
+        group["pilot_count"] = len(group["pilots"])
+        group["isk_per_hour"] = _rate(group["isk_earned"], group["isk_seconds"])
+        kills, losses = group["kill_values"], group["loss_values"]
+        group["kills"], group["isk_destroyed"] = len(kills), sum(kills.values(), Decimal(0))
+        group["losses"], group["isk_lost"] = len(losses), sum(losses.values(), Decimal(0))
+    sort_key = normalize_sort_key(sort_key, SORT_FIELDS)
+    result.sort(key=lambda group: (group["known"], group.get(sort_key) or 0), reverse=True)
+    for group in result:
+        group["pilots"].sort(key=lambda row: row.get(sort_key) or 0, reverse=True)
+    return result
