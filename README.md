@@ -126,8 +126,8 @@ ESI calls use django-esi's client with a pinned compatibility date (`PILOTSTATS_
 Posts to one Discord channel through a webhook. There are no bot or slash commands. Set it up under *Admin → Pilot Stats → Discord settings*:
 
 1. In Discord, go to the channel's *Settings → Integrations → Webhooks → New Webhook → Copy Webhook URL*.
-2. Paste it into **webhook URL**, tick **enabled**, and save. The URL is stored in the database only and is never shown again; leave the field blank to keep it.
-3. Select the settings row and run **Send a test message to the webhook**.
+2. Paste it into **webhook URL** and tick **enabled**. The URL is stored in the database only and is never shown again; leave the field blank to keep it.
+3. Click **Save and send a test message**. It saves the settings, then posts a test message to the channel.
 
 **What gets posted:**
 - **Daily top 10**: once a day at the set time and time zone (default 11:05 UTC, after EVE downtime).

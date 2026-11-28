@@ -1,0 +1,6 @@
+{% extends "admin/submit_line.html" %}
+{% comment %}Discord settings: one more button after Save (kept after it so Enter in a field still means a plain Save). It saves the form first, then sends the test.{% endcomment %}
+{% block submit-row %}
+{{ block.super }}
+{% if show_save %}<input type="submit" value="Save and send a test message" name="_send_test">{% endif %}
+{% endblock %}
