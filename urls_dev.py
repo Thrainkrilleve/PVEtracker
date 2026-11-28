@@ -1,3 +1,4 @@
+from django.apps import apps
 from django.contrib import admin
 from django.urls import include, path
 
@@ -30,3 +31,7 @@ urlpatterns = [
     path("", decorate_url_patterns([hook.include_pattern], main_character_required))
     for hook in _pilotstats_hooks
 ]
+
+# AA Desktop's bridge, when settings_dev turned it on (see there).
+if apps.is_installed("aa_desktop_bridge"):
+    urlpatterns.append(path("", include("aa_desktop_bridge.urls")))

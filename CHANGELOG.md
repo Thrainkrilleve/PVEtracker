@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- **Automatic upload with AA Desktop.** When the optional `aa-desktop-bridge` plugin is installed, Pilot Stats registers a desktop module with two routes under `/api/desktop/v1/modules/pilotstats/`: `POST upload` and `GET characters`. Each needs a bearer token with the `desktop.pilotstats.upload` scope and the `pilotstats.basic_access` permission. Uploads use the folder scanner's code, results and per-user limit. Setup is in the README under "Automatic upload with AA Desktop". Without the bridge nothing changes.
+- The JSON upload path is now one function, `views.upload_json`, shared by the folder scanner, multi-file drop and AA Desktop. Behavior is unchanged.
+
 ## v0.1.0 — Pilot Stats
 
 The first release on PyPI as `aa-pilotstats`. PvE Tracker is renamed to Pilot Stats, Gamelog uploads can be automated, and payouts, killmails, fleets and a Discord feed join the combat logs.

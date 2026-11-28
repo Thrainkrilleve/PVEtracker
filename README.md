@@ -22,6 +22,7 @@ A note on naming: the installable/importable package is `aa_pilotstats` (distrib
   - **Firefox / Safari**: "Scan a folder once" does the same pass a single time.
   - Logs are read on the pilot's computer, and only logs whose `Listener:` is one of the user's own characters are sent; the server re-checks ownership anyway.
   - By default only logs from the last 7 days go up. A checkbox includes older logs for a one-time backfill.
+- **Automatic upload with AA Desktop** (optional): pilots who run the AA Desktop app get their logs uploaded in the background with no browser tab open. See [Automatic upload with AA Desktop](#automatic-upload-with-aa-desktop).
 - **Ownership-verified attribution** — a log is only accepted if its `Listener:` character is one the uploading user actually owns on Alliance Auth.
 - **Main/alt roll-up** — leaderboard rows are grouped by each user's designated main character, with a per-character breakdown on expand. The grouping lives in `aa_pilotstats.leaderboard` so later Discord and ISK/kill columns can use the same buckets.
 - **Re-uploading a growing log updates the same session.** The EVE client keeps writing to one file per client session. A session is identified by its character plus the log header's `Session Started:` time, so uploading a longer copy replaces that session's totals instead of counting the fight twice.
@@ -34,7 +35,7 @@ A note on naming: the installable/importable package is `aa_pilotstats` (distrib
 
 ## Known limitations
 
-- **Near-live, not live.** The folder scanner re-uploads a growing log about once a minute while its tab is open; there's no line-by-line live view yet, and closing the tab stops scanning. A desktop watcher that doesn't need an open tab is planned.
+- **Near-live, not live.** The folder scanner re-uploads a growing log about once a minute while its tab is open; there's no line-by-line live view yet, and closing the tab stops scanning. [AA Desktop](#automatic-upload-with-aa-desktop) uploads without an open tab.
 - Sessions uploaded before the "same session" matching was added have no header time stored, so a re-upload of one of those logs is stored as a new session; delete the old one from My Uploads.
 - **Only the combat log has DPS.** ESI has no combat or damage data. Payouts, rat counts, killmails and fleet rosters sit next to the Gamelog numbers. Damage, payout ISK, and kill value are never added together.
 - **Payouts lag up to an hour.** ESI caches the wallet journal for an hour, and the journal only goes back 30 days, so payouts from before a pilot connected their wallet (older than 30 days) can't be fetched.
@@ -101,7 +102,7 @@ A note on naming: the installable/importable package is `aa_pilotstats` (distrib
 
 | Source | What it adds | How it's collected | Needs |
 |---|---|---|---|
-| Gamelog | DPS, hit quality, reps | Upload, drag-and-drop, or the folder scanner | `pilotstats.basic_access` |
+| Gamelog | DPS, hit quality, reps | Upload, drag-and-drop, the folder scanner, or AA Desktop | `pilotstats.basic_access` |
 | ESI wallet journal | Payout ISK (bounty, ESS, mission), rats killed | Hourly per character that connected its wallet | Optional per pilot: `esi-wallet.read_character_wallet.v1` |
 | zKillboard R2Z2 | Kills, losses, ISK destroyed/lost, killmail damage | Every minute from zKill's public feed | Nothing from pilots |
 | ESI fleet | Who was in a fleet, hull, combat-log coverage | Every minute while a fleet is tracked | Optional, fleet boss only: `esi-fleets.read_fleet.v1` |
@@ -138,6 +139,25 @@ Posts to one Discord channel through a webhook. There are no bot or slash comman
   - A new fleet record for one main's payouts in a day.
 - Event posts are capped per hour (default 6); extras are skipped, not queued. The daily post is never capped.
 - Each post goes out once (there's a log under *Discord posts*), only names and numbers are sent, and nobody is ever pinged. Keep in mind the channel may be visible to people who aren't on Auth.
+
+## Automatic upload with AA Desktop
+
+AA Desktop is a desktop app that signs in to your Alliance Auth. With it, a pilot's Gamelogs are uploaded automatically while the app runs, with no browser tab open. It uses the same upload code as the folder scanner: the same ownership check, result codes and per-user limit (`PILOTSTATS_SCANNER_UPLOADS_PER_MINUTE`, shared between the scanner and the app).
+
+This needs the `aa-desktop-bridge` plugin on your Auth. It isn't published yet, so for now this applies only to Auths that already run it. Without it, Pilot Stats doesn't register anything for the desktop app and works as before.
+
+1. Install and set up `aa-desktop-bridge` as its README says.
+2. Add the Pilot Stats scope to the scopes the OIDC provider knows about. Merge it into your existing `OAUTH2_PROVIDER["SCOPES"]` in `local.py`; don't replace the scopes already there:
+
+   ```python
+   OAUTH2_PROVIDER.setdefault("SCOPES", {})["desktop.pilotstats.upload"] = (
+       "Upload your own characters' EVE combat logs to Pilot Stats."
+   )
+   ```
+
+3. Restart Auth. `python manage.py desktop_modules` should list `pilotstats` as mounted, with the scope registered.
+
+The app asks each pilot to approve the `desktop.pilotstats.upload` scope in the browser the first time they turn on automatic upload. Each request needs both that scope and `pilotstats.basic_access`, so removing the permission stops a pilot's uploads, and so does revoking the app's access in Auth. The routes are under `/api/desktop/v1/modules/pilotstats/` (`POST upload`, `GET characters`) and accept only bearer tokens, never a browser session.
 
 ## Settings
 

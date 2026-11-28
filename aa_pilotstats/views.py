@@ -4,6 +4,7 @@ Pilot Stats Views
 leaderboard      — fleet standings, rolled up to each user's main character
 upload           — drag-and-drop (or picker) upload of a combat log; JSON for the scanner
 upload_characters— the user's character names, for the folder scanner's local filter
+                   (desktop.py serves the same two for AA Desktop, behind a bearer token)
 session_detail   — the upload-result dashboard for one stored session
 my_uploads       — a user's own upload history, with delete
 delete_upload    — POST endpoint backing the delete button on my_uploads
@@ -202,37 +203,16 @@ def upload(request):
     The folder scanner and multi-file drop post the same field with
     ``Accept: application/json`` and get an ``UploadResult`` as JSON.
     """
-    json_mode = _wants_json(request)
-    result = None
+    if request.method == "POST" and _wants_json(request):
+        return upload_json(request)
 
+    result = None
     if request.method == "POST":
-        if json_mode:
-            wait = _throttled(request.user)
-            if wait:
-                response = JsonResponse(
-                    {"result": "throttled", "message": str(_("Too many uploads; slowing down.")),
-                     "retry_after": wait},
-                    status=429,
-                )
-                response["Retry-After"] = str(wait)
-                return response
         form = LogUploadForm(request.POST, request.FILES)
         if form.is_valid():
-            outcome = _process_upload(request.user, form.cleaned_data["log_file"])
-            if outcome.code in ("created", "updated"):
-                transaction.on_commit(
-                    lambda pk=outcome.session.pk: tasks.check_session_records.delay(pk)
-                )
-            if json_mode:
-                return JsonResponse(outcome.as_json())
+            outcome = _upload_and_queue(request.user, form.cleaned_data["log_file"])
             messages.add_message(request, outcome.level, outcome.message)
             result = outcome.session if outcome.code in ("created", "updated") else None
-        elif json_mode:
-            return JsonResponse(
-                {"result": "invalid", "message": str(_("No log file in the request.")),
-                 "errors": form.errors.get_json_data()},
-                status=400,
-            )
     else:
         form = LogUploadForm()
 
@@ -243,12 +223,50 @@ def upload(request):
     })
 
 
+def upload_json(request) -> JsonResponse:
+    """
+    The JSON upload used by the folder scanner, multi-file drops, and AA
+    Desktop (``desktop.py``). The caller has already checked who the user is
+    and that they have ``pilotstats.basic_access``. All three share one
+    per-user throttle.
+    """
+    wait = _throttled(request.user)
+    if wait:
+        response = JsonResponse(
+            {"result": "throttled", "message": str(_("Too many uploads; slowing down.")),
+             "retry_after": wait},
+            status=429,
+        )
+        response["Retry-After"] = str(wait)
+        return response
+    form = LogUploadForm(request.POST, request.FILES)
+    if not form.is_valid():
+        return JsonResponse(
+            {"result": "invalid", "message": str(_("No log file in the request.")),
+             "errors": form.errors.get_json_data()},
+            status=400,
+        )
+    return JsonResponse(_upload_and_queue(request.user, form.cleaned_data["log_file"]).as_json())
+
+
+def _upload_and_queue(user, uploaded_file) -> UploadResult:
+    outcome = _process_upload(user, uploaded_file)
+    if outcome.code in ("created", "updated"):
+        transaction.on_commit(
+            lambda pk=outcome.session.pk: tasks.check_session_records.delay(pk)
+        )
+    return outcome
+
+
+def own_character_names(user) -> list:
+    return sorted(_owned_characters(user))
+
+
 @login_required
 @permission_required("pilotstats.basic_access", raise_exception=True)
 def upload_characters(request):
     """Names of the user's own characters, so the scanner only sends their logs."""
-    names = sorted(_owned_characters(request.user))
-    return JsonResponse({"characters": names})
+    return JsonResponse({"characters": own_character_names(request.user)})
 
 
 def _process_upload(user, uploaded_file) -> UploadResult:
