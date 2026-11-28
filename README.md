@@ -198,4 +198,15 @@ python manage.py makemigrations pilotstats --check --dry-run
 
 `settings_dev.py` is not a production settings file. Confirm the pages against your real Alliance Auth theme in the Auth container when you care about Bootswatch colors; the nested leaderboard detail table is styled with the app's own classes for that reason.
 
-GitHub Actions runs `python manage.py test aa_pilotstats` and the `makemigrations --check` step on Python 3.12 with Redis 7.4, against both the oldest supported Alliance Auth (5.0.0) and 5.6.0.
+GitHub Actions runs `python manage.py test aa_pilotstats` and the `makemigrations --check` step on Python 3.12 with Redis 7.4:
+- on SQLite, against the oldest supported Alliance Auth (5.0.0, with django-esi 9.0.0 and the newest) and 5.6.0;
+- on MariaDB 10.11 and 11.8 with Alliance Auth 5.6.0, since real sites run MariaDB or MySQL.
+
+To run the suite on MariaDB or MySQL locally, point `settings_dev.py` at a throwaway server with environment variables (the database user needs to create the `test_` database):
+
+```bash
+docker run -d --rm --name pilotstats-test-db -e MARIADB_ROOT_PASSWORD=example-test-password -p 3306:3306 mariadb:11.8
+PILOTSTATS_TEST_DB=mysql python manage.py test aa_pilotstats
+```
+
+`PILOTSTATS_DB_HOST`, `PILOTSTATS_DB_PORT`, `PILOTSTATS_DB_USER`, `PILOTSTATS_DB_PASSWORD` and `PILOTSTATS_DB_NAME` override the defaults (`127.0.0.1`, `3306`, `root`, `example-test-password`, `pilotstats`).

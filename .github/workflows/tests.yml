@@ -55,3 +55,57 @@ jobs:
         env:
           DJANGO_SETTINGS_MODULE: settings_dev
         run: python manage.py test aa_pilotstats --verbosity=1
+
+  mariadb:
+    # Real Alliance Auth sites run MariaDB or MySQL, and some code paths (the
+    # PvE Tracker table rename in migration 0001, DDL outside transactions)
+    # only behave differently there. Oldest LTS and the current release.
+    name: Alliance Auth 5.6.0 / MariaDB ${{ matrix.mariadb }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        mariadb: ["10.11", "11.8"]
+    services:
+      redis:
+        image: redis:7.4
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      mariadb:
+        image: mariadb:${{ matrix.mariadb }}
+        env:
+          MARIADB_ROOT_PASSWORD: example-test-password
+          MARIADB_DATABASE: pilotstats
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "healthcheck.sh --connect --innodb_initialized"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DJANGO_SETTINGS_MODULE: settings_dev
+      PILOTSTATS_TEST_DB: mysql
+      PILOTSTATS_DB_PASSWORD: example-test-password
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install MySQL client build dependencies
+        run: sudo apt-get update && sudo apt-get install -y pkg-config default-libmysqlclient-dev build-essential
+      - name: Install Alliance Auth 5.6.0 and this app
+        run: |
+          python -m pip install --upgrade pip
+          pip install "allianceauth==5.6.0" "django-sri<1"
+          pip install -e . --no-deps
+      - name: Check migrations match the models
+        run: python manage.py makemigrations pilotstats --check --dry-run
+      - name: Run tests
+        run: python manage.py test aa_pilotstats --verbosity=1 --noinput
