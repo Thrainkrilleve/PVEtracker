@@ -147,7 +147,11 @@ def delete_wallet_data(user) -> None:
     Payout.objects.filter(character_id__in=character_ids).delete()
     PayoutDaily.objects.filter(character_id__in=character_ids).delete()
     NpcKillDaily.objects.filter(character_id__in=character_ids).delete()
-    CombatLogUpload.objects.filter(character_id__in=character_ids).update(payout_isk=None)
+    CombatLogUpload.objects.filter(character_id__in=character_ids).update(payout_isk=None, activity="")
+    # Activities that came from the wallet go; what the NPC names say stays.
+    classify_unmatched(
+        CombatLogUpload.objects.filter(character_id__in=character_ids).only("pk", "activity", "top_targets")
+    )
 
 
 # ---- ISK per hour ----------------------------------------------------------------
@@ -164,7 +168,7 @@ def wallet_tracked(character) -> bool:
 
 
 def match_sessions(character, now=None) -> int:
-    """Recompute ``payout_isk`` for *character*'s recent sessions. Returns how many changed.
+    """Recompute ``payout_isk`` and ``activity`` for *character*'s recent sessions. Returns how many changed.
 
     A bounty or mission payout belongs to a session when it lands between the
     session's first combat line and ``PAYOUT_TAIL_MINUTES`` after its last
@@ -177,7 +181,12 @@ def match_sessions(character, now=None) -> int:
     Sessions get ``None`` when the character's wallet isn't connected, and
     a number (possibly 0) when it is. All of the character's recent sessions
     are recomputed together, so the overlap rule always sees every candidate.
+
+    The payout types that land in each session's window also decide its
+    activity (missions, ratting, ...; see ``activity.classify``).
     """
+    from . import activity
+
     now = now or timezone.now()
     tail = timedelta(minutes=PAYOUT_TAIL_MINUTES)
     # A day of margin keeps sessions whose payouts are only partly purged out.
@@ -189,36 +198,62 @@ def match_sessions(character, now=None) -> int:
         session_started__gte=oldest,
     )
     sessions = list(qs.order_by("session_started", "pk").only(
-        "pk", "session_started", "session_ended", "payout_isk",
+        "pk", "session_started", "session_ended", "payout_isk", "activity", "top_targets",
     ))
     if not sessions:
         return 0
 
     if not wallet_tracked(character):
         totals = {session.pk: None for session in sessions}
+        kinds = {session.pk: None for session in sessions}
     else:
         totals = {session.pk: Decimal(0) for session in sessions}
+        kinds = {session.pk: set() for session in sessions}
         starts = [session.session_started for session in sessions]
         payouts_in_range = Payout.objects.filter(
             character=character,
             entry_type__in=EARNED_TYPES,
             occurred_at__gte=sessions[0].session_started,
             occurred_at__lte=max(session.session_ended for session in sessions) + tail,
-        ).values_list("occurred_at", "amount")
-        for occurred_at, amount in payouts_in_range:
+        ).values_list("occurred_at", "amount", "entry_type")
+        for occurred_at, amount, entry_type in payouts_in_range:
             # The session that started last at or before the payout.
             index = bisect.bisect_right(starts, occurred_at) - 1
             if index >= 0 and occurred_at <= sessions[index].session_ended + tail:
                 totals[sessions[index].pk] += amount
+                kinds[sessions[index].pk].add(entry_type)
 
     changed = []
     for session in sessions:
         value = totals[session.pk]
         if value is not None:
             value = value.quantize(Decimal("0.01"))
-        if session.payout_isk != value:
+        kind = activity.classify(session.top_targets, kinds[session.pk])
+        if session.payout_isk != value or session.activity != kind:
             session.payout_isk = value
+            session.activity = kind
             changed.append(session)
     if changed:
-        CombatLogUpload.objects.bulk_update(changed, ["payout_isk"])
+        CombatLogUpload.objects.bulk_update(changed, ["payout_isk", "activity"])
+    return len(changed)
+
+
+def classify_unmatched(sessions) -> int:
+    """Classify sessions ``match_sessions`` doesn't reach (older than payout retention).
+
+    Their payouts are gone, so only the names rule can apply. Sessions that
+    already have an activity keep it. Returns how many were set.
+    """
+    from . import activity
+
+    changed = []
+    for session in sessions:
+        if session.activity:
+            continue
+        kind = activity.classify(session.top_targets, None)
+        if kind:
+            session.activity = kind
+            changed.append(session)
+    if changed:
+        CombatLogUpload.objects.bulk_update(changed, ["activity"])
     return len(changed)
