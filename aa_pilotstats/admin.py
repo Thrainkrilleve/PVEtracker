@@ -3,6 +3,8 @@
 # Django
 from django import forms
 from django.contrib import admin, messages
+from django.http import HttpResponseRedirect
+from django.urls import reverse
 
 from .models import (
     CombatLogUpload,
@@ -181,10 +183,12 @@ class DiscordSettingsForm(forms.ModelForm):
 
 @admin.register(DiscordSettings)
 class DiscordSettingsAdmin(admin.ModelAdmin):
+    """One settings row. The list page opens it directly, and the form has a
+    "Save and send a test message" button next to Save."""
+
     form = DiscordSettingsForm
     list_display = ("__str__", "enabled", "webhook_saved", "daily_post_time", "timezone",
                     "payout_threshold_isk", "kill_threshold_isk", "max_posts_per_hour", "post_records")
-    actions = ["send_test_message"]
     fieldsets = (
         (None, {"fields": ("enabled", "webhook_url", "clear_webhook")}),
         ("Daily top 10", {"fields": ("daily_post_time", "timezone")}),
@@ -202,16 +206,37 @@ class DiscordSettingsAdmin(admin.ModelAdmin):
     def has_delete_permission(self, request, obj=None):
         return False
 
-    @admin.action(description="Send a test message to the webhook")
-    def send_test_message(self, request, queryset):
+    def changelist_view(self, request, extra_context=None):
+        """There's only ever one row: open it instead of a one-line list."""
+        config = DiscordSettings.objects.first()
+        if config is None:
+            return HttpResponseRedirect(reverse("admin:pilotstats_discordsettings_add"))
+        return HttpResponseRedirect(reverse("admin:pilotstats_discordsettings_change", args=[config.pk]))
+
+    def response_add(self, request, obj, post_url_continue=None):
+        if "_send_test" in request.POST:
+            self._send_test(request, obj)
+            return HttpResponseRedirect(reverse("admin:pilotstats_discordsettings_change", args=[obj.pk]))
+        return super().response_add(request, obj, post_url_continue)
+
+    def response_change(self, request, obj):
+        if "_send_test" in request.POST:
+            self._send_test(request, obj)
+            return HttpResponseRedirect(request.path)
+        return super().response_change(request, obj)
+
+    def _send_test(self, request, config):
+        """Called after the form saved, so the test uses what was just entered."""
         from . import discord
 
-        config = DiscordSettings.get()
         if not config.is_active:
-            self.message_user(request, "Enable the feed and save a webhook URL first.", messages.WARNING)
+            self.message_user(
+                request, "Saved, but no test was sent: tick enabled and save a webhook URL first.",
+                messages.WARNING,
+            )
             return
         discord.test_message(config)
-        self.message_user(request, "Test message queued. It appears in the channel within a few seconds.")
+        self.message_user(request, "Saved. Test message queued; it appears in the channel within a few seconds.")
 
 
 @admin.register(DiscordPost)
