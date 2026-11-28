@@ -47,6 +47,7 @@ from esi.models import Token
 from . import fleets, payouts, tasks, typenames
 from .app_settings import (
     FLEET_SCOPE,
+    PAYOUT_TAIL_MINUTES,
     SCANNER_RECENT_DAYS,
     SCANNER_UPLOADS_PER_MINUTE,
     SESSION_LINK_MINUTES,
@@ -135,6 +136,7 @@ def leaderboard(request):
             ]),
             (_("Wallet"), [
                 ("payout_isk", _("Payout ISK")),
+                ("isk_per_hour", _("ISK/h")),
                 ("rats_killed", _("Rats Killed")),
             ]),
             (_("Killmails"), [
@@ -336,6 +338,7 @@ def _process_upload(user, uploaded_file) -> UploadResult:
                 log_upload = CombatLogUpload.objects.create(
                     character=character, log_started=log_started, **values
                 )
+                _match_payouts(log_upload)
                 return UploadResult(
                     "created", messages.SUCCESS,
                     _("Uploaded and parsed — %(n)d combat lines scored.") % {"n": stats.matched},
@@ -349,6 +352,12 @@ def _process_upload(user, uploaded_file) -> UploadResult:
         return UploadResult(
             "duplicate", messages.WARNING, _("This log has already been uploaded."),
         )
+
+
+def _match_payouts(session) -> None:
+    """Give a new or grown session its payout ISK from wallet lines already stored."""
+    payouts.match_sessions(session.character)
+    session.refresh_from_db(fields=["payout_isk"])
 
 
 def _update_existing_session(user, existing, values) -> UploadResult:
@@ -373,6 +382,7 @@ def _update_existing_session(user, existing, values) -> UploadResult:
     for field, value in values.items():
         setattr(existing, field, value)
     existing.save()
+    _match_payouts(existing)
     return UploadResult(
         "updated", messages.SUCCESS,
         _("Updated your existing session for this log — %(n)d new combat lines.") % {"n": added},
@@ -409,8 +419,14 @@ def _session_links(session) -> dict:
         return {}
     slack = timedelta(minutes=SESSION_LINK_MINUTES)
     start, end = session.session_started - slack, session.session_ended + slack
+    # Payouts and rats use the same window as ISK per hour (start of the
+    # session to one bounty tick after it), so the tiles agree with each other.
+    payout_window = (
+        session.session_started,
+        session.session_ended + timedelta(minutes=PAYOUT_TAIL_MINUTES),
+    )
     payouts = list(
-        Payout.objects.filter(character=session.character, occurred_at__range=(start, end))
+        Payout.objects.filter(character=session.character, occurred_at__range=payout_window)
         .only("entry_type", "amount", "npc_kills")
     )
     payout_total = sum((p.amount for p in payouts), Decimal(0))
@@ -439,6 +455,7 @@ def _session_links(session) -> dict:
         "names": typenames.names(ids),
         "payout_labels": dict(Payout.EntryType.choices),
         "window_minutes": SESSION_LINK_MINUTES,
+        "tail_minutes": PAYOUT_TAIL_MINUTES,
     }
 
 

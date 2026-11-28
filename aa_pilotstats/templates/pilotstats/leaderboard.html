@@ -35,6 +35,7 @@
                     <th class="text-end">{% trans "Reps Received" %}</th>
                     <th class="text-end">{% trans "Reps Given" %}</th>
                     <th class="text-end pstats-col-sep" title="{% trans 'Bounty, ESS and mission payouts from the wallet journal' %}">{% trans "Payout ISK" %}</th>
+                    <th class="text-end" title="{% trans 'Bounty and mission payouts earned during logged sessions, per hour of those sessions (sessions of 10 minutes or more; ESS escrow not included)' %}">{% trans "ISK/h" %}</th>
                     <th class="text-end" title="{% trans 'NPCs killed, from bounty ticks' %}">{% trans "Rats" %}</th>
                     <th class="text-end pstats-col-sep" title="{% trans 'Kills / losses from zKillboard' %}">{% trans "Kills / Losses" %}</th>
                     <th class="text-end">{% trans "ISK Destroyed / Lost" %}</th>
@@ -59,6 +60,7 @@
                     <td class="text-end pstats-col-isk pstats-col-sep">
                         {% if row.payout_isk or row.wallet_connected %}{{ row.payout_isk|isk }}{% else %}<span class="text-body-secondary" title="{% trans 'No wallet connected' %}">—</span>{% endif %}
                     </td>
+                    <td class="text-end pstats-col-isk">{% if row.isk_per_hour is not None %}{{ row.isk_per_hour|isk }}{% else %}<span class="text-body-secondary" title="{% trans 'Needs a connected wallet and a logged session of 10 minutes or more' %}">—</span>{% endif %}</td>
                     <td class="text-end">{% if row.rats_killed or row.wallet_connected %}{{ row.rats_killed|floatformat:0 }}{% else %}<span class="text-body-secondary">—</span>{% endif %}</td>
                     <td class="text-end pstats-col-sep">{{ row.kills }} / {{ row.losses }}</td>
                     <td class="text-end small">{{ row.isk_destroyed|isk }} / {{ row.isk_lost|isk }}</td>
@@ -66,7 +68,7 @@
                     <td class="text-end"><i class="fas fa-chevron-down fa-xs text-body-secondary"></i></td>
                 </tr>
                 <tr class="pstats-detail-row">
-                    <td colspan="11" class="p-0 border-0">
+                    <td colspan="12" class="p-0 border-0">
                         <div class="collapse" id="row-{{ forloop.counter }}">
                             <table class="pstats-detail-table bg-body-tertiary text-body">
                                 <tbody>

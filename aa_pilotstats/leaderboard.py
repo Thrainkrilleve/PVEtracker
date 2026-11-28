@@ -20,9 +20,11 @@ SUM_FIELDS = (
     "reps_given_total",
 )
 
-# Columns from the other sources (see merge_sources).
+# Columns from the other sources (see merge_sources). isk_per_hour is
+# filled by rollup_sessions from each session's matched payouts.
 SOURCE_FIELDS = (
     "payout_isk",
+    "isk_per_hour",
     "rats_killed",
     "kills",
     "losses",
@@ -99,9 +101,17 @@ def rollup_sessions(sessions, *, sort_key="damage_out", sum_fields=SUM_FIELDS):
             "user_id": int,
             "upload_count": int,
             "<sum field>": int,
+            "isk_per_hour": Decimal or None,
             "by_character": [(name, {field: int, ...}), ...],
         }
+
+    ``isk_per_hour`` is weighted by time: payout ISK earned in the bucket's
+    sessions divided by their total hours. Only sessions with wallet data
+    and at least ``ISK_RATE_MIN_SECONDS`` long count, so pilots without a
+    connected wallet get None rather than 0.
     """
+    from .models import ISK_RATE_MIN_SECONDS
+
     fields = tuple(sum_fields)
     sort_key = normalize_sort_key(sort_key, fields)
     buckets: dict = {}
@@ -124,12 +134,19 @@ def rollup_sessions(sessions, *, sort_key="damage_out", sum_fields=SUM_FIELDS):
                 "user_id": user_id,
                 "upload_count": 0,
                 "by_character": {},
+                "_earned": Decimal(0),
+                "_earned_seconds": 0.0,
             }
             for field in fields:
                 bucket[field] = 0
             buckets[key] = bucket
 
         bucket["upload_count"] += 1
+        earned = getattr(row, "payout_isk", None)
+        seconds = _session_seconds(row)
+        if earned is not None and seconds >= ISK_RATE_MIN_SECONDS:
+            bucket["_earned"] += earned
+            bucket["_earned_seconds"] += seconds
         for field in fields:
             bucket[field] += getattr(row, field, 0) or 0
 
@@ -142,6 +159,9 @@ def rollup_sessions(sessions, *, sort_key="damage_out", sum_fields=SUM_FIELDS):
             char_bucket[field] += getattr(row, field, 0) or 0
 
     rows = list(buckets.values())
+    for row in rows:
+        earned, seconds = row.pop("_earned"), row.pop("_earned_seconds")
+        row["isk_per_hour"] = earned * 3600 / Decimal(str(seconds)) if seconds else None
     rows.sort(key=lambda item: item[sort_key], reverse=True)
     for row in rows:
         row["by_character"] = sorted(
@@ -150,6 +170,14 @@ def rollup_sessions(sessions, *, sort_key="damage_out", sum_fields=SUM_FIELDS):
             reverse=True,
         )
     return rows
+
+
+def _session_seconds(row) -> float:
+    started = getattr(row, "session_started", None)
+    ended = getattr(row, "session_ended", None)
+    if not started or not ended:
+        return 0.0
+    return max((ended - started).total_seconds(), 0.0)
 
 
 def rank_of(rows, user):

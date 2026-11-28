@@ -13,12 +13,30 @@
 {% if linked %}
 <h2 class="h5 mt-4 mb-1">{% trans "Around this session" %}</h2>
 <p class="text-body-secondary small mb-2">
-    {% blocktrans trimmed with minutes=linked.window_minutes %}
-    From other sources, for this character from {{ minutes }} minutes before the session to
-    {{ minutes }} minutes after it. Shown next to the combat log's numbers, never added to them.
+    {% blocktrans trimmed with minutes=linked.window_minutes tail=linked.tail_minutes %}
+    From other sources, for this character. Payouts and rats count from the session's start until
+    {{ tail }} minutes after its end, since bounties are paid in ticks every 20 minutes. Kills and the
+    hull count from {{ minutes }} minutes before to {{ minutes }} minutes after. Shown next to the
+    combat log's numbers, never added to them.
     {% endblocktrans %}
 </p>
 <div class="pstats-link-grid mb-3">
+    <div class="pstats-panel bg-body-tertiary text-body">
+        <div class="pstats-panel-title text-body-secondary">{% trans "ISK per hour" %}</div>
+        {% if session.isk_per_hour is not None %}
+        <div class="fs-5 pstats-col-isk">{{ session.isk_per_hour|isk }}/h</div>
+        <span class="text-body-secondary small">
+            {% blocktrans trimmed with earned=session.payout_isk|isk duration=session.duration_display minutes=linked.tail_minutes %}
+            {{ earned }} in bounties and mission rewards over {{ duration }}, counting ticks up to
+            {{ minutes }} minutes after the last combat line. ESS escrow isn't included.
+            {% endblocktrans %}
+        </span>
+        {% elif session.payout_isk is None %}
+        <span class="text-body-secondary small">{% trans "Needs this character's wallet connected (Events page)." %}</span>
+        {% else %}
+        <span class="text-body-secondary small">{% trans "Not shown for sessions under 10 minutes." %}</span>
+        {% endif %}
+    </div>
     <div class="pstats-panel bg-body-tertiary text-body">
         <div class="pstats-panel-title text-body-secondary">{% trans "Payouts" %}</div>
         {% if linked.payout_count %}

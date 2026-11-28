@@ -126,6 +126,9 @@ def pull_wallet_journal(self, character_id: int):
         )
         if unnamed:
             resolve_type_names.delay(unnamed)
+    # Every successful pull, even with nothing new: a session uploaded since
+    # the last pull, or a wallet connected for the first time, gets its ISK.
+    payouts.match_sessions(character)
 
 
 @shared_task
