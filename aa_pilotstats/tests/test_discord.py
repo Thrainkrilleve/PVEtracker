@@ -14,6 +14,7 @@ from unittest import mock
 # Django
 from django.core.exceptions import ValidationError
 from django.test import TestCase
+from django.urls import reverse
 
 # Alliance Auth
 from allianceauth.authentication.models import CharacterOwnership
@@ -257,3 +258,82 @@ class SendTaskTests(DiscordTestCase):
         self._send(SimpleNamespace(status_code=404, headers={}))
         self.post.refresh_from_db()
         self.assertEqual(self.post.status, DiscordPost.Status.FAILED)
+
+
+class SettingsAdminTests(TestCase):
+    """The settings page opens directly and has a "Save and send a test message" button."""
+
+    def setUp(self):
+        self.admin = AuthUtils.create_user("admin")
+        self.admin.is_staff = self.admin.is_superuser = True
+        self.admin.save()
+        self.client.force_login(self.admin)
+        patcher = mock.patch.object(tasks.send_discord_post, "delay")
+        self.sent = patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _form_data(self, url, **changes):
+        form = self.client.get(url).context["adminform"].form
+        data = {}
+        for name, field in form.fields.items():
+            value = form.initial.get(name, field.initial)
+            if isinstance(value, bool):
+                if value:
+                    data[name] = "on"
+            elif value is not None:
+                data[name] = value
+        data.update(changes)
+        return {k: v for k, v in data.items() if v is not False}
+
+    def test_list_page_opens_the_add_form_then_the_settings(self):
+        response = self.client.get(reverse("admin:pilotstats_discordsettings_changelist"))
+        self.assertRedirects(response, reverse("admin:pilotstats_discordsettings_add"))
+        config = DiscordSettings.get()
+        response = self.client.get(reverse("admin:pilotstats_discordsettings_changelist"))
+        self.assertRedirects(response, reverse("admin:pilotstats_discordsettings_change", args=[config.pk]))
+
+    def test_button_is_on_the_form(self):
+        config = DiscordSettings.get()
+        response = self.client.get(reverse("admin:pilotstats_discordsettings_change", args=[config.pk]))
+        html = response.content.decode()
+        self.assertIn('name="_send_test"', html)
+        # Save stays the form's first submit button, so Enter in a field is a plain save.
+        self.assertLess(html.index('name="_save"'), html.index('name="_send_test"'))
+
+    def test_button_saves_then_sends_a_test(self):
+        config = DiscordSettings.get()
+        url = reverse("admin:pilotstats_discordsettings_change", args=[config.pk])
+        data = self._form_data(url, enabled="on", webhook_url=WEBHOOK, _send_test="1")
+        response = self.client.post(url, data, follow=True)
+        self.assertRedirects(response, url)
+        config.refresh_from_db()
+        self.assertTrue(config.is_active)
+        self.assertEqual(self.sent.call_count, 1)
+        self.assertEqual(DiscordPost.objects.get().kind, DiscordPost.Kind.TEST)
+        self.assertContains(response, "Test message queued")
+
+    def test_button_on_first_save_creates_and_sends(self):
+        url = reverse("admin:pilotstats_discordsettings_add")
+        data = self._form_data(url, enabled="on", webhook_url=WEBHOOK, _send_test="1")
+        response = self.client.post(url, data)
+        config = DiscordSettings.objects.get()
+        self.assertRedirects(response, reverse("admin:pilotstats_discordsettings_change", args=[config.pk]))
+        self.assertEqual(self.sent.call_count, 1)
+
+    def test_inactive_feed_saves_but_sends_nothing(self):
+        config = DiscordSettings.get()
+        url = reverse("admin:pilotstats_discordsettings_change", args=[config.pk])
+        data = self._form_data(url, webhook_url=WEBHOOK, _send_test="1")
+        data.pop("enabled", None)
+        response = self.client.post(url, data, follow=True)
+        config.refresh_from_db()
+        self.assertEqual(config.webhook_url, WEBHOOK)
+        self.sent.assert_not_called()
+        self.assertContains(response, "no test was sent")
+
+    def test_plain_save_sends_nothing(self):
+        config = DiscordSettings.get()
+        url = reverse("admin:pilotstats_discordsettings_change", args=[config.pk])
+        data = self._form_data(url, enabled="on", webhook_url=WEBHOOK, _save="Save")
+        self.client.post(url, data)
+        self.sent.assert_not_called()
