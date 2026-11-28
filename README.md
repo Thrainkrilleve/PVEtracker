@@ -8,7 +8,7 @@ Each EVE client's combat log only ever records damage *involving that pilot*, so
 
 ## Status
 
-Alliance Auth 5.x only (`allianceauth>=5.0.0,<6`). Alliance Auth 4 is not supported. Combat stats still come from uploaded EVE Gamelog `.txt` files. The current version is in [`aa_pilotstats/__init__.py`](aa_pilotstats/__init__.py), and changes are listed in the [changelog](CHANGELOG.md).
+Alliance Auth 5.x only (`allianceauth>=5.0.0,<6`). Alliance Auth 4 is not supported. Combat stats still come from uploaded EVE Gamelog `.txt` files. The current version is in [`aa_pilotstats/__init__.py`](aa_pilotstats/__init__.py), changes are listed in the [changelog](CHANGELOG.md), and planned work is in the [roadmap](ROADMAP.md).
 
 Any logged-in member can view the leaderboard, a stored session, and the events list. Uploading and deleting logs needs `pilotstats.basic_access`.
 
@@ -149,7 +149,8 @@ Optional, in `local.py`:
 | `PILOTSTATS_SCANNER_RECENT_DAYS` | `7` | The scanner only sends logs modified in the last N days unless "include older logs" is ticked. |
 | `PILOTSTATS_ESI_COMPATIBILITY_DATE` | `"2026-11-19"` | ESI compatibility date sent on every call. Bump it only after checking CCP's ESI changelog. |
 | `PILOTSTATS_PAYOUT_RETENTION_DAYS` | `35` | Days itemized payout lines are kept (daily totals are kept longer). |
-| `PILOTSTATS_SESSION_LINK_MINUTES` | `15` | How far before and after a session payouts, kills and fleet hulls are matched to it. |
+| `PILOTSTATS_SESSION_LINK_MINUTES` | `15` | How far before and after a session kills and fleet hulls are matched to it. |
+| `PILOTSTATS_PAYOUT_TAIL_MINUTES` | `20` | How long after a session ends its last bounty tick can still arrive. Payouts, rats and ISK per hour count from the session start to this long after its end. |
 | `PILOTSTATS_ZKILL_AUTO_STATES` | `["Member"]` | Auth states whose mains' corporations and alliances are tracked on zKill automatically. |
 | `PILOTSTATS_R2Z2_MAX_PER_RUN` | `300` | zKill sequence files read per run of `drain_r2z2`. |
 | `PILOTSTATS_R2Z2_REQUEST_INTERVAL` | `0.15` | Seconds between zKill requests (their limit is 15 a second per IP). |
