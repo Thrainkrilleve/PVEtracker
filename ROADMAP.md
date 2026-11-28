@@ -11,7 +11,7 @@ What's planned for Pilot Stats, roughly in order. Released work is in the [chang
 ## For fleets and leadership
 
 4. **Activity type per session** *(in review)*. Classify sessions as anomalies, incursions, abyssals, missions and so on, from the NPC types in bounty ticks and combat logs, so the leaderboard compares like with like.
-5. **Corporation and alliance totals.** Weekly and monthly totals per corporation next to the per-pilot leaderboard, plus a CSV export.
+5. **Corporation and alliance totals** *(in review)*. Weekly and monthly totals per corporation next to the per-pilot leaderboard, plus a CSV export.
 
 ## Quality and upkeep
 

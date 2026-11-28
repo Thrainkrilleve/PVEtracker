@@ -13,6 +13,7 @@ fleet_list / fleet_detail / track_fleet / stop_fleet — fleet-boss roster track
 """
 
 # Standard Library
+import csv
 import hashlib
 import logging
 import time
@@ -30,7 +31,7 @@ from django.core.exceptions import PermissionDenied
 from django.db import IntegrityError, transaction
 from django.db.models import Count, Sum
 from django.db.models.functions import Coalesce
-from django.http import JsonResponse
+from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
 from django.urls import reverse
@@ -58,6 +59,7 @@ from .leaderboard import (
     DETAIL_FIELDS,
     SORT_FIELDS,
     SUM_FIELDS,
+    group_rows,
     leaderboard_rows,
     normalize_sort_key,
     rank_of,
@@ -117,6 +119,68 @@ def _can_delete(user, log_upload) -> bool:
 # ---------------------------------------------------------------------------
 
 
+_CSV_RISKY = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _csv_text(value) -> str:
+    """Names as CSV text that a spreadsheet won't run as a formula."""
+    text = str(value or "")
+    return "'" + text if text.startswith(_CSV_RISKY) else text
+
+
+def _leaderboard_csv(rows, groups, group, range_key, activity):
+    """The leaderboard as shown (pilots, corporations or alliances), as CSV."""
+    metrics = [
+        ("upload_count", "Sessions"),
+        ("damage_out", "Damage dealt"),
+        ("damage_in", "Damage received"),
+        ("reps_received_total", "Reps received"),
+        ("reps_given_total", "Reps given"),
+        ("isk_per_hour", "ISK per hour"),
+    ]
+    if not activity:
+        metrics += [
+            ("payout_isk", "Payout ISK"),
+            ("rats_killed", "Rats killed"),
+            ("kills", "Kills"),
+            ("losses", "Losses"),
+            ("isk_destroyed", "ISK destroyed"),
+            ("isk_lost", "ISK lost"),
+            ("km_damage", "Killmail damage"),
+        ]
+
+    def number(value):
+        if value is None:
+            return ""
+        if isinstance(value, float):
+            return f"{value:.2f}"
+        if isinstance(value, Decimal):
+            return str(value.quantize(Decimal("0.01")))
+        return str(value)
+
+    name = "-".join(filter(None, ["pilotstats", group or "pilots", range_key, activity]))
+    response = HttpResponse(content_type="text/csv; charset=utf-8")
+    response["Content-Disposition"] = f'attachment; filename="{name}.csv"'
+    writer = csv.writer(response)
+    if groups is not None:
+        writer.writerow([group.capitalize(), "Pilots"] + [label for _key, label in metrics])
+        for row in groups:
+            label = row["label"] if row["known"] else "Unknown"
+            writer.writerow(
+                [_csv_text(label), row["pilot_count"]] + [number(row.get(key)) for key, _label in metrics]
+            )
+    else:
+        writer.writerow(["Pilot", "Corporation", "Alliance"] + [label for _key, label in metrics])
+        for row in rows:
+            main = row.get("main")
+            writer.writerow([
+                _csv_text(row["label"]),
+                _csv_text(getattr(main, "corporation_name", "")),
+                _csv_text(getattr(main, "alliance_name", "")),
+            ] + [number(row.get(key)) for key, _label in metrics])
+    return response
+
+
 def _sort_groups(activity):
     """Sort buttons. With an activity picked, only columns that come from the sessions."""
     gamelog = (_("Gamelog"), [
@@ -152,10 +216,22 @@ def leaderboard(request):
     sort_key = normalize_sort_key(request.GET.get("sort", "damage_out"), SORT_FIELDS)
     if activity and sort_key not in SUM_FIELDS + ("isk_per_hour",):
         sort_key = "damage_out"  # wallet and killmail columns aren't split by activity
+    group = request.GET.get("group", "")
+    if group not in ("corporation", "alliance"):
+        group = ""
     rows = leaderboard_rows(range_key, sort_key, activity=activity or None)
+    groups = group_rows(rows, by=group, sort_key=sort_key) if group else None
+
+    if request.GET.get("format") == "csv":
+        return _leaderboard_csv(rows, groups, group, range_key, activity)
 
     return render(request, "pilotstats/leaderboard.html", {
         "rows": rows,
+        "groups": groups,
+        "group": group,
+        "group_choices": [
+            ("", _("Pilots")), ("corporation", _("Corporations")), ("alliance", _("Alliances")),
+        ],
         "range_key": range_key,
         "sort_key": sort_key,
         "activity": activity,

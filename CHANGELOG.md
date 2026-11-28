@@ -30,6 +30,11 @@ Run `migrate` (adds `0004_combatlogupload_payout_isk`, `0005_combatlogupload_tim
   - **When it updates:** sessions are classified on upload and after every wallet pull. `pilotstats_classify` fills in stored sessions; older ones go by NPC names only.
   - **Opting out:** "Don't read my wallet" clears the wallet-based activities.
   - **Name lists:** they live in `aa_pilotstats/activity.py`.
+- **Corporation and alliance totals on the leaderboard.** A Pilots / Corporations / Alliances toggle groups pilots under their main's corporation or alliance.
+  - **Columns:** member count and the same columns as the pilot view, for the same range and activity filter.
+  - **Per-group rules:** ISK/h is weighted over all members' logged hours, and a killmail several members are on counts once.
+  - **Details:** each group expands to its members. Pilots without a main go into an "Unknown" group at the bottom.
+- **CSV export** of whatever the leaderboard shows: pilots (with corporation and alliance), corporations or alliances, for the chosen range and activity. Names that start like a spreadsheet formula are quoted so they can't run as one.
 - New [roadmap](ROADMAP.md) with the planned work: session DPS chart, personal trends, activity types, corp totals, MariaDB CI, leaderboard caching, and AA Desktop upload.
 
 ## v0.1.1

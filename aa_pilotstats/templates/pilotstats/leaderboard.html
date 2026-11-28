@@ -5,15 +5,21 @@
 <h1 class="mb-3">{% trans "Fleet Leaderboard" %}</h1>
 
 <div class="btn-toolbar mb-3 gap-2 flex-wrap" role="toolbar">
+    <div class="btn-group btn-group-sm" role="group" aria-label="{% trans 'Group by' %}">
+        {% for key, text in group_choices %}
+        <a href="?range={{ range_key }}&sort={{ sort_key }}&activity={{ activity }}&group={{ key }}"
+           class="btn btn-outline-secondary {% if group == key %}active{% endif %}">{{ text }}</a>
+        {% endfor %}
+    </div>
     <div class="btn-group btn-group-sm" role="group">
         {% for key, text in ranges %}
-        <a href="?range={{ key }}&sort={{ sort_key }}&activity={{ activity }}"
+        <a href="?range={{ key }}&sort={{ sort_key }}&activity={{ activity }}&group={{ group }}"
            class="btn btn-outline-secondary {% if range_key == key %}active{% endif %}">{{ text }}</a>
         {% endfor %}
     </div>
     <div class="btn-group btn-group-sm flex-wrap" role="group" aria-label="{% trans 'Activity' %}">
         {% for key, text in activities %}
-        <a href="?range={{ range_key }}&sort={{ sort_key }}&activity={{ key }}"
+        <a href="?range={{ range_key }}&sort={{ sort_key }}&activity={{ key }}&group={{ group }}"
            class="btn btn-outline-secondary {% if activity == key %}active{% endif %}">{{ text }}</a>
         {% endfor %}
     </div>
@@ -21,7 +27,7 @@
     <div class="btn-group btn-group-sm" role="group" aria-label="{{ group_name }}">
         <span class="btn btn-sm disabled text-body-secondary pstats-sort-label">{{ group_name }}</span>
         {% for key, text in sorts %}
-        <a href="?range={{ range_key }}&sort={{ key }}&activity={{ activity }}"
+        <a href="?range={{ range_key }}&sort={{ key }}&activity={{ activity }}&group={{ group }}"
            class="btn btn-outline-secondary {% if sort_key == key %}active{% endif %}">{{ text }}</a>
         {% endfor %}
     </div>
@@ -33,6 +39,15 @@
     {% trans "Only sessions of this activity. Payouts, rats and killmails can't be split by activity, so those columns are hidden; ISK/h is from these sessions." %}
 </p>
 {% endif %}
+<div class="d-flex justify-content-end mb-2">
+    <a class="btn btn-sm btn-outline-secondary"
+       href="?range={{ range_key }}&sort={{ sort_key }}&activity={{ activity }}&group={{ group }}&format=csv">
+        <i class="fas fa-file-csv"></i> {% trans "Download CSV" %}
+    </a>
+</div>
+{% if groups is not None %}
+{% include "pilotstats/includes/leaderboard_groups.html" %}
+{% else %}
 <div class="card bg-body-tertiary text-body">
     <div class="card-body">
         {% if rows %}
@@ -127,4 +142,5 @@
         {% endif %}
     </div>
 </div>
+{% endif %}
 {% endblock %}
